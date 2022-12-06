@@ -1,0 +1,4239 @@
+diff --git a/.gitignore b/.gitignore
+index 7063609..a538fcc 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,20 +1,20 @@
+-*~
+-_*
+-*.o
+-*.d
+-*.asm
+-*.sym
+-*.img
+-vectors.S
+-bootblock
+-entryother
+-initcode
+-initcode.out
+-kernelmemfs
+-mkfs
+-kernel/kernel
+-user/usys.S
+-.gdbinit
+-*.out
+-.vscode
+-*.out.*
++*~
++_*
++*.o
++*.d
++*.asm
++*.sym
++*.img
++vectors.S
++bootblock
++entryother
++initcode
++initcode.out
++kernelmemfs
++mkfs
++kernel/kernel
++user/usys.S
++.gdbinit
++*.out
++.vscode
++*.out.*
+diff --git a/Makefile b/Makefile
+index bd098a8..93b1e76 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,208 +1,208 @@
+-K=kernel
+-U=user
+-LAB=1
+-
+-OBJS = \
+-  $K/entry.o \
+-  $K/start.o \
+-  $K/console.o \
+-  $K/printf.o \
+-  $K/uart.o \
+-  $K/kalloc.o \
+-  $K/spinlock.o \
+-  $K/string.o \
+-  $K/main.o \
+-  $K/vm.o \
+-  $K/proc.o \
+-  $K/swtch.o \
+-  $K/trampoline.o \
+-  $K/trap.o \
+-  $K/syscall.o \
+-  $K/sysproc.o \
+-  $K/bio.o \
+-  $K/fs.o \
+-  $K/log.o \
+-  $K/sleeplock.o \
+-  $K/file.o \
+-  $K/pipe.o \
+-  $K/exec.o \
+-  $K/sysfile.o \
+-  $K/kernelvec.o \
+-  $K/plic.o \
+-  $K/virtio_disk.o
+-
+-# riscv64-unknown-elf- or riscv64-linux-gnu-
+-# perhaps in /opt/riscv/bin
+-#TOOLPREFIX = 
+-
+-# Try to infer the correct TOOLPREFIX if not set
+-ifndef TOOLPREFIX
+-TOOLPREFIX := $(shell if riscv64-unknown-elf-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
+-	then echo 'riscv64-unknown-elf-'; \
+-	elif riscv64-linux-gnu-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
+-	then echo 'riscv64-linux-gnu-'; \
+-	elif riscv64-unknown-linux-gnu-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
+-	then echo 'riscv64-unknown-linux-gnu-'; \
+-	else echo "***" 1>&2; \
+-	echo "*** Error: Couldn't find a riscv64 version of GCC/binutils." 1>&2; \
+-	echo "*** To turn off this error, run 'gmake TOOLPREFIX= ...'." 1>&2; \
+-	echo "***" 1>&2; exit 1; fi)
+-endif
+-
+-QEMU = qemu-system-riscv64
+-
+-CC = $(TOOLPREFIX)gcc
+-AS = $(TOOLPREFIX)gas
+-LD = $(TOOLPREFIX)ld
+-OBJCOPY = $(TOOLPREFIX)objcopy
+-OBJDUMP = $(TOOLPREFIX)objdump
+-
+-CFLAGS = -Wall -Werror -O -fno-omit-frame-pointer -ggdb -gdwarf-2
+-CFLAGS += -MD
+-CFLAGS += -mcmodel=medany
+-CFLAGS += -ffreestanding -fno-common -nostdlib -mno-relax
+-CFLAGS += -I.
+-CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 && echo -fno-stack-protector)
+-
+-# Disable PIE when possible (for Ubuntu 16.10 toolchain)
+-ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]no-pie'),)
+-CFLAGS += -fno-pie -no-pie
+-endif
+-ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]nopie'),)
+-CFLAGS += -fno-pie -nopie
+-endif
+-
+-LDFLAGS = -z max-page-size=4096
+-
+-$K/kernel: $(OBJS) $K/kernel.ld $U/initcode
+-	$(LD) $(LDFLAGS) -T $K/kernel.ld -o $K/kernel $(OBJS) 
+-	$(OBJDUMP) -S $K/kernel > $K/kernel.asm
+-	$(OBJDUMP) -t $K/kernel | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $K/kernel.sym
+-
+-$U/initcode: $U/initcode.S
+-	$(CC) $(CFLAGS) -march=rv64g -nostdinc -I. -Ikernel -c $U/initcode.S -o $U/initcode.o
+-	$(LD) $(LDFLAGS) -N -e start -Ttext 0 -o $U/initcode.out $U/initcode.o
+-	$(OBJCOPY) -S -O binary $U/initcode.out $U/initcode
+-	$(OBJDUMP) -S $U/initcode.o > $U/initcode.asm
+-
+-tags: $(OBJS) _init
+-	etags *.S *.c
+-
+-ULIB = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o $U/rhtest.o $U/rhmalloc.o
+-
+-_%: %.o $(ULIB)
+-	$(LD) $(LDFLAGS) -T $U/user.ld -o $@ $^
+-	$(OBJDUMP) -S $@ > $*.asm
+-	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $*.sym
+-
+-$U/usys.S : $U/usys.pl
+-	perl $U/usys.pl > $U/usys.S
+-
+-$U/usys.o : $U/usys.S
+-	$(CC) $(CFLAGS) -c -o $U/usys.o $U/usys.S
+-
+-$U/_forktest: $U/forktest.o $(ULIB)
+-	# forktest has less library code linked in - needs to be small
+-	# in order to be able to max out the proc table.
+-	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $U/_forktest $U/forktest.o $U/ulib.o $U/usys.o
+-	$(OBJDUMP) -S $U/_forktest > $U/forktest.asm
+-
+-mkfs/mkfs: mkfs/mkfs.c $K/fs.h $K/param.h
+-	gcc -Werror -Wall -I. -o mkfs/mkfs mkfs/mkfs.c
+-
+-# Prevent deletion of intermediate files, e.g. cat.o, after first build, so
+-# that disk image changes after first build are persistent until clean.  More
+-# details:
+-# http://www.gnu.org/software/make/manual/html_node/Chained-Rules.html
+-.PRECIOUS: %.o
+-
+-UPROGS=\
+-	$U/_cat\
+-	$U/_echo\
+-	$U/_forktest\
+-	$U/_grep\
+-	$U/_init\
+-	$U/_kill\
+-	$U/_ln\
+-	$U/_ls\
+-	$U/_mkdir\
+-	$U/_rm\
+-	$U/_sh\
+-	$U/_stressfs\
+-	$U/_usertests\
+-	$U/_grind\
+-	$U/_wc\
+-	$U/_zombie\
+-	$U/_lab01basic\
+-	$U/_lab01test\
+-
+-fs.img: mkfs/mkfs README $(UPROGS)
+-	mkfs/mkfs fs.img README $(UPROGS)
+-
+--include kernel/*.d user/*.d
+-
+-clean: 
+-	rm -f *.tex *.dvi *.idx *.aux *.log *.ind *.ilg \
+-	*/*.o */*.d */*.asm */*.sym \
+-	$U/initcode $U/initcode.out $K/kernel fs.img \
+-	mkfs/mkfs .gdbinit \
+-        $U/usys.S \
+-	$(UPROGS)
+-
+-# try to generate a unique GDB port
+-GDBPORT = $(shell expr `id -u` % 5000 + 25000)
+-# QEMU's gdb stub command line changed in 0.11
+-QEMUGDB = $(shell if $(QEMU) -help | grep -q '^-gdb'; \
+-	then echo "-gdb tcp::$(GDBPORT)"; \
+-	else echo "-s -p $(GDBPORT)"; fi)
+-ifndef CPUS
+-CPUS := 3
+-endif
+-
+-QEMUOPTS = -machine virt -bios none -kernel $K/kernel -m 128M -smp $(CPUS) -nographic
+-QEMUOPTS += -global virtio-mmio.force-legacy=false
+-QEMUOPTS += -drive file=fs.img,if=none,format=raw,id=x0
+-QEMUOPTS += -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
+-
+-qemu: $K/kernel fs.img
+-	$(QEMU) $(QEMUOPTS)
+-
+-.gdbinit: .gdbinit.tmpl-riscv
+-	sed "s/:1234/:$(GDBPORT)/" < $^ > $@
+-
+-qemu-gdb: $K/kernel .gdbinit fs.img
+-	@echo "*** Now run 'gdb' in another window." 1>&2
+-	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
+-
+-
+-##
+-## FOR testing lab grading script
+-##
+-
+-
+-ifneq ($(V),@)
+-GRADEFLAGS += -v
+-endif
+-
+-print-gdbport:
+-	@echo $(GDBPORT)
+-
+-grade:
+-	@echo $(MAKE) clean
+-	@$(MAKE) clean || \
+-          (echo "'make clean' failed.  HINT: Do you have another running instance of xv6?" && exit 1)
+-	./grade-lab-$(LAB).py $(GRADEFLAGS)
+-
+-
+-
+-##
+-## FOR submission purposes
+-##
+-
+-submit:
+-	@echo $(MAKE) clean
+-	@$(MAKE) clean || \
+-	 (echo "'make clean' failed. HINT: Do you have another running instance of xv6?" && exit 1)
+-	@git diff > submit-lab-$(LAB).patch
+-	@tar --exclude-from="exclude.txt" -cvf submit-lab-$(LAB).tar .
+-
++K=kernel
++U=user
++LAB=1
++
++OBJS = \
++  $K/entry.o \
++  $K/start.o \
++  $K/console.o \
++  $K/printf.o \
++  $K/uart.o \
++  $K/kalloc.o \
++  $K/spinlock.o \
++  $K/string.o \
++  $K/main.o \
++  $K/vm.o \
++  $K/proc.o \
++  $K/swtch.o \
++  $K/trampoline.o \
++  $K/trap.o \
++  $K/syscall.o \
++  $K/sysproc.o \
++  $K/bio.o \
++  $K/fs.o \
++  $K/log.o \
++  $K/sleeplock.o \
++  $K/file.o \
++  $K/pipe.o \
++  $K/exec.o \
++  $K/sysfile.o \
++  $K/kernelvec.o \
++  $K/plic.o \
++  $K/virtio_disk.o
++
++# riscv64-unknown-elf- or riscv64-linux-gnu-
++# perhaps in /opt/riscv/bin
++#TOOLPREFIX = 
++
++# Try to infer the correct TOOLPREFIX if not set
++ifndef TOOLPREFIX
++TOOLPREFIX := $(shell if riscv64-unknown-elf-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
++	then echo 'riscv64-unknown-elf-'; \
++	elif riscv64-linux-gnu-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
++	then echo 'riscv64-linux-gnu-'; \
++	elif riscv64-unknown-linux-gnu-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
++	then echo 'riscv64-unknown-linux-gnu-'; \
++	else echo "***" 1>&2; \
++	echo "*** Error: Couldn't find a riscv64 version of GCC/binutils." 1>&2; \
++	echo "*** To turn off this error, run 'gmake TOOLPREFIX= ...'." 1>&2; \
++	echo "***" 1>&2; exit 1; fi)
++endif
++
++QEMU = qemu-system-riscv64
++
++CC = $(TOOLPREFIX)gcc
++AS = $(TOOLPREFIX)gas
++LD = $(TOOLPREFIX)ld
++OBJCOPY = $(TOOLPREFIX)objcopy
++OBJDUMP = $(TOOLPREFIX)objdump
++
++CFLAGS = -Wall -Werror -O -fno-omit-frame-pointer -ggdb -gdwarf-2
++CFLAGS += -MD
++CFLAGS += -mcmodel=medany
++CFLAGS += -ffreestanding -fno-common -nostdlib -mno-relax
++CFLAGS += -I.
++CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 && echo -fno-stack-protector)
++
++# Disable PIE when possible (for Ubuntu 16.10 toolchain)
++ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]no-pie'),)
++CFLAGS += -fno-pie -no-pie
++endif
++ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]nopie'),)
++CFLAGS += -fno-pie -nopie
++endif
++
++LDFLAGS = -z max-page-size=4096
++
++$K/kernel: $(OBJS) $K/kernel.ld $U/initcode
++	$(LD) $(LDFLAGS) -T $K/kernel.ld -o $K/kernel $(OBJS) 
++	$(OBJDUMP) -S $K/kernel > $K/kernel.asm
++	$(OBJDUMP) -t $K/kernel | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $K/kernel.sym
++
++$U/initcode: $U/initcode.S
++	$(CC) $(CFLAGS) -march=rv64g -nostdinc -I. -Ikernel -c $U/initcode.S -o $U/initcode.o
++	$(LD) $(LDFLAGS) -N -e start -Ttext 0 -o $U/initcode.out $U/initcode.o
++	$(OBJCOPY) -S -O binary $U/initcode.out $U/initcode
++	$(OBJDUMP) -S $U/initcode.o > $U/initcode.asm
++
++tags: $(OBJS) _init
++	etags *.S *.c
++
++ULIB = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o $U/rhtest.o $U/rhmalloc.o
++
++_%: %.o $(ULIB)
++	$(LD) $(LDFLAGS) -T $U/user.ld -o $@ $^
++	$(OBJDUMP) -S $@ > $*.asm
++	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $*.sym
++
++$U/usys.S : $U/usys.pl
++	perl $U/usys.pl > $U/usys.S
++
++$U/usys.o : $U/usys.S
++	$(CC) $(CFLAGS) -c -o $U/usys.o $U/usys.S
++
++$U/_forktest: $U/forktest.o $(ULIB)
++	# forktest has less library code linked in - needs to be small
++	# in order to be able to max out the proc table.
++	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $U/_forktest $U/forktest.o $U/ulib.o $U/usys.o
++	$(OBJDUMP) -S $U/_forktest > $U/forktest.asm
++
++mkfs/mkfs: mkfs/mkfs.c $K/fs.h $K/param.h
++	gcc -Werror -Wall -I. -o mkfs/mkfs mkfs/mkfs.c
++
++# Prevent deletion of intermediate files, e.g. cat.o, after first build, so
++# that disk image changes after first build are persistent until clean.  More
++# details:
++# http://www.gnu.org/software/make/manual/html_node/Chained-Rules.html
++.PRECIOUS: %.o
++
++UPROGS=\
++	$U/_cat\
++	$U/_echo\
++	$U/_forktest\
++	$U/_grep\
++	$U/_init\
++	$U/_kill\
++	$U/_ln\
++	$U/_ls\
++	$U/_mkdir\
++	$U/_rm\
++	$U/_sh\
++	$U/_stressfs\
++	$U/_usertests\
++	$U/_grind\
++	$U/_wc\
++	$U/_zombie\
++	$U/_lab01basic\
++	$U/_lab01test\
++
++fs.img: mkfs/mkfs README $(UPROGS)
++	mkfs/mkfs fs.img README $(UPROGS)
++
++-include kernel/*.d user/*.d
++
++clean: 
++	rm -f *.tex *.dvi *.idx *.aux *.log *.ind *.ilg \
++	*/*.o */*.d */*.asm */*.sym \
++	$U/initcode $U/initcode.out $K/kernel fs.img \
++	mkfs/mkfs .gdbinit \
++        $U/usys.S \
++	$(UPROGS)
++
++# try to generate a unique GDB port
++GDBPORT = $(shell expr `id -u` % 5000 + 25000)
++# QEMU's gdb stub command line changed in 0.11
++QEMUGDB = $(shell if $(QEMU) -help | grep -q '^-gdb'; \
++	then echo "-gdb tcp::$(GDBPORT)"; \
++	else echo "-s -p $(GDBPORT)"; fi)
++ifndef CPUS
++CPUS := 3
++endif
++
++QEMUOPTS = -machine virt -bios none -kernel $K/kernel -m 128M -smp $(CPUS) -nographic
++QEMUOPTS += -global virtio-mmio.force-legacy=false
++QEMUOPTS += -drive file=fs.img,if=none,format=raw,id=x0
++QEMUOPTS += -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
++
++qemu: $K/kernel fs.img
++	$(QEMU) $(QEMUOPTS)
++
++.gdbinit: .gdbinit.tmpl-riscv
++	sed "s/:1234/:$(GDBPORT)/" < $^ > $@
++
++qemu-gdb: $K/kernel .gdbinit fs.img
++	@echo "*** Now run 'gdb' in another window." 1>&2
++	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
++
++
++##
++## FOR testing lab grading script
++##
++
++
++ifneq ($(V),@)
++GRADEFLAGS += -v
++endif
++
++print-gdbport:
++	@echo $(GDBPORT)
++
++grade:
++	@echo $(MAKE) clean
++	@$(MAKE) clean || \
++          (echo "'make clean' failed.  HINT: Do you have another running instance of xv6?" && exit 1)
++	./grade-lab-$(LAB).py $(GRADEFLAGS)
++
++
++
++##
++## FOR submission purposes
++##
++
++submit:
++	@echo $(MAKE) clean
++	@$(MAKE) clean || \
++	 (echo "'make clean' failed. HINT: Do you have another running instance of xv6?" && exit 1)
++	@git diff > submit-lab-$(LAB).patch
++	@tar --exclude-from="exclude.txt" -cvf submit-lab-$(LAB).tar .
++
+diff --git a/exclude.txt b/exclude.txt
+index 75ad6a8..cfa23f0 100644
+--- a/exclude.txt
++++ b/exclude.txt
+@@ -1,5 +1,5 @@
+-*.out.*
+-*.out
+-__pycache__
+-.git
+-*.tar
++*.out.*
++*.out
++__pycache__
++.git
++*.tar
+diff --git a/grade-lab-1.py b/grade-lab-1.py
+old mode 100755
+new mode 100644
+index d6b22f1..1e7bd59
+--- a/grade-lab-1.py
++++ b/grade-lab-1.py
+@@ -1,84 +1,84 @@
+-#!/usr/bin/env python
+-
+-import re
+-from gradelib import *
+-
+-r = Runner(save("xv6.out"))
+-
+-@test(5, "rhmm, test basic case")
+-def test_basic_case():
+-    r.run_qemu(shell_script(['lab01basic']))
+-    r.match("^TestCase1:.*: Ok\.",
+-            no=[".*FAILED.*"])
+-
+-@test(20, "rhmm, test basic alloc")
+-def test_basic_alloc():
+-    r.run_qemu(shell_script(['lab01test 1']))
+-    r.match("^test_basic_alloc\\(\\d+\\): OK\.",
+-            no=[".*Assertion FAILED.*"])
+-
+-
+-@test(20, "rhmm, test basic free")
+-def test_basic_free():
+-    r.run_qemu(shell_script(['lab01test 2']))
+-    r.match("^test_basic_free\\(\\d+\\): OK\.",
+-            no=[".*Assertion FAILED.*"])
+-
+-
+-@test(10, "rhmm, test coalesce basic 1")
+-def test_coalesce_basic1():
+-    r.run_qemu(shell_script(['lab01test 3']))
+-    r.match("^test_coalesce_basic1\\(\\d+\\): OK\.",
+-            no=[".*Assertion FAILED.*"])
+-
+-
+-@test(10, "rhmm, test coalesce basic 2")
+-def test_coalesce_basic1():
+-    r.run_qemu(shell_script(['lab01test 4']))
+-    r.match("^test_coalesce_basic2\\(\\d+\\): OK\.",
+-            no=[".*Assertion FAILED.*"])
+-
+-
+-@test(10, "rhmm, test coalesce 3")
+-def test_coalesce3():
+-    r.run_qemu(shell_script(['lab01test 5']))
+-    r.match("^test_coalesce3\\(\\d+\\): OK\.",
+-            no=[".*Assertion FAILED.*"])
+-
+-
+-@test(10, "rhmm, test force alignment")
+-def test_foce_alignment():
+-    r.run_qemu(shell_script(['lab01test 6']))
+-    r.match("^test_force_alignment\\(\\d+\\): OK\.",
+-            no=[".*Assertiona FAILED.*"])
+-
+-
+-@test(10, "rhmm, test too small blocks")
+-def test_too_small_blocks():
+-    r.run_qemu(shell_script(['lab01test 7']))
+-    r.match("^test_too_small_blocks\\(\\d+\\): OK\.",
+-            no=[".*Assertion FAILED.*"])
+-
+-
+-@test(10, "rhmm, test gracefully run out of memory")
+-def test_gracefully_run_out_of_memory():
+-    r.run_qemu(shell_script(['lab01test 8']))
+-    r.match("^test_gracefully_run_out_of_memory\\(\\d+\\): OK\.",
+-            no=[".*Assertion FAILED.*"])
+-
+-
+-@test(15, "rhmm, test stress big heap chunks")
+-def test_stress_big_heap_chunks():
+-    r.run_qemu(shell_script(['lab01test 9']))
+-    r.match("^test_stress_big_heap_chunks\\(\\d+\\): OK\.",
+-            no=[".*Assertion FAILED.*"])
+-
+-
+-@test(20, "rhmm, test stress overlapping")
+-def test_stress_overlapping():
+-    r.run_qemu(shell_script(['lab01test 10']))
+-    r.match(no=[".*Assertion FAILED.*"])
+-
+-
+-run_tests()
+-
++#!/usr/bin/env python
++
++import re
++from gradelib import *
++
++r = Runner(save("xv6.out"))
++
++@test(5, "rhmm, test basic case")
++def test_basic_case():
++    r.run_qemu(shell_script(['lab01basic']))
++    r.match("^TestCase1:.*: Ok\.",
++            no=[".*FAILED.*"])
++
++@test(20, "rhmm, test basic alloc")
++def test_basic_alloc():
++    r.run_qemu(shell_script(['lab01test 1']))
++    r.match("^test_basic_alloc\\(\\d+\\): OK\.",
++            no=[".*Assertion FAILED.*"])
++
++
++@test(20, "rhmm, test basic free")
++def test_basic_free():
++    r.run_qemu(shell_script(['lab01test 2']))
++    r.match("^test_basic_free\\(\\d+\\): OK\.",
++            no=[".*Assertion FAILED.*"])
++
++
++@test(10, "rhmm, test coalesce basic 1")
++def test_coalesce_basic1():
++    r.run_qemu(shell_script(['lab01test 3']))
++    r.match("^test_coalesce_basic1\\(\\d+\\): OK\.",
++            no=[".*Assertion FAILED.*"])
++
++
++@test(10, "rhmm, test coalesce basic 2")
++def test_coalesce_basic1():
++    r.run_qemu(shell_script(['lab01test 4']))
++    r.match("^test_coalesce_basic2\\(\\d+\\): OK\.",
++            no=[".*Assertion FAILED.*"])
++
++
++@test(10, "rhmm, test coalesce 3")
++def test_coalesce3():
++    r.run_qemu(shell_script(['lab01test 5']))
++    r.match("^test_coalesce3\\(\\d+\\): OK\.",
++            no=[".*Assertion FAILED.*"])
++
++
++@test(10, "rhmm, test force alignment")
++def test_foce_alignment():
++    r.run_qemu(shell_script(['lab01test 6']))
++    r.match("^test_force_alignment\\(\\d+\\): OK\.",
++            no=[".*Assertiona FAILED.*"])
++
++
++@test(10, "rhmm, test too small blocks")
++def test_too_small_blocks():
++    r.run_qemu(shell_script(['lab01test 7']))
++    r.match("^test_too_small_blocks\\(\\d+\\): OK\.",
++            no=[".*Assertion FAILED.*"])
++
++
++@test(10, "rhmm, test gracefully run out of memory")
++def test_gracefully_run_out_of_memory():
++    r.run_qemu(shell_script(['lab01test 8']))
++    r.match("^test_gracefully_run_out_of_memory\\(\\d+\\): OK\.",
++            no=[".*Assertion FAILED.*"])
++
++
++@test(15, "rhmm, test stress big heap chunks")
++def test_stress_big_heap_chunks():
++    r.run_qemu(shell_script(['lab01test 9']))
++    r.match("^test_stress_big_heap_chunks\\(\\d+\\): OK\.",
++            no=[".*Assertion FAILED.*"])
++
++
++@test(20, "rhmm, test stress overlapping")
++def test_stress_overlapping():
++    r.run_qemu(shell_script(['lab01test 10']))
++    r.match(no=[".*Assertion FAILED.*"])
++
++
++run_tests()
++
+diff --git a/gradelib.py b/gradelib.py
+index 2aa658c..9883548 100644
+--- a/gradelib.py
++++ b/gradelib.py
+@@ -1,612 +1,612 @@
+-from __future__ import print_function
+-
+-import sys, os, re, time, socket, select, subprocess, errno, shutil, random, string
+-from subprocess import check_call, Popen
+-from optparse import OptionParser
+-
+-__all__ = []
+-
+-##################################################################
+-# Test structure
+-#
+-
+-__all__ += ["test", "end_part", "run_tests", "get_current_test"]
+-
+-TESTS = []
+-TOTAL = POSSIBLE = 0
+-PART_TOTAL = PART_POSSIBLE = 0
+-CURRENT_TEST = None
+-
+-def test(points, title=None, parent=None):
+-    """Decorator for declaring test functions.  If title is None, the
+-    title of the test will be derived from the function name by
+-    stripping the leading "test_" and replacing underscores with
+-    spaces."""
+-
+-    def register_test(fn, title=title):
+-        if not title:
+-            assert fn.__name__.startswith("test_")
+-            title = fn.__name__[5:].replace("_", " ")
+-        if parent:
+-            title = "  " + title
+-
+-        def run_test():
+-            global TOTAL, POSSIBLE, CURRENT_TEST
+-
+-            # Handle test dependencies
+-            if run_test.complete:
+-                return run_test.ok
+-            run_test.complete = True
+-            parent_failed = False
+-            if parent:
+-                parent_failed = not parent()
+-
+-            # Run the test
+-            fail = None
+-            start = time.time()
+-            CURRENT_TEST = run_test
+-            sys.stdout.write("== Test %s == " % title)
+-            if parent:
+-                sys.stdout.write("\n")
+-            sys.stdout.flush()
+-            try:
+-                if parent_failed:
+-                    raise AssertionError('Parent failed: %s' % parent.__name__)
+-                fn()
+-            except AssertionError as e:
+-                fail = str(e)
+-
+-            # Display and handle test result
+-            POSSIBLE += points
+-            if points:
+-                print("%s: %s" % (title, \
+-                    (color("red", "FAIL") if fail else color("green", "OK"))), end=' ')
+-            if time.time() - start > 0.1:
+-                print("(%.1fs)" % (time.time() - start), end=' ')
+-            print()
+-            if fail:
+-                print("    %s" % fail.replace("\n", "\n    "))
+-            else:
+-                TOTAL += points
+-            for callback in run_test.on_finish:
+-                callback(fail)
+-            CURRENT_TEST = None
+-
+-            run_test.ok = not fail
+-            return run_test.ok
+-
+-        # Record test metadata on the test wrapper function
+-        run_test.__name__ = fn.__name__
+-        run_test.title = title
+-        run_test.complete = False
+-        run_test.ok = False
+-        run_test.on_finish = []
+-        TESTS.append(run_test)
+-        return run_test
+-    return register_test
+-
+-def end_part(name):
+-    def show_part():
+-        global PART_TOTAL, PART_POSSIBLE
+-        print("Part %s score: %d/%d" % \
+-            (name, TOTAL - PART_TOTAL, POSSIBLE - PART_POSSIBLE))
+-        print()
+-        PART_TOTAL, PART_POSSIBLE = TOTAL, POSSIBLE
+-    show_part.title = ""
+-    TESTS.append(show_part)
+-
+-def run_tests():
+-    """Set up for testing and run the registered test functions."""
+-
+-    # Handle command line
+-    global options
+-    parser = OptionParser(usage="usage: %prog [-v] [filters...]")
+-    parser.add_option("-v", "--verbose", action="store_true",
+-                      help="print commands")
+-    parser.add_option("--color", choices=["never", "always", "auto"],
+-                      default="auto", help="never, always, or auto")
+-    (options, args) = parser.parse_args()
+-
+-    # Start with a full build to catch build errors
+-    make()
+-
+-    # Clean the file system if there is one
+-    reset_fs()
+-
+-    # Run tests
+-    limit = list(map(str.lower, args))
+-    try:
+-        for test in TESTS:
+-            if not limit or any(l in test.title.lower() for l in limit):
+-                test()
+-        if not limit:
+-            print("Score: %d/%d" % (TOTAL, POSSIBLE))
+-    except KeyboardInterrupt:
+-        pass
+-    if TOTAL < POSSIBLE:
+-        sys.exit(1)
+-
+-def get_current_test():
+-    if not CURRENT_TEST:
+-        raise RuntimeError("No test is running")
+-    return CURRENT_TEST
+-
+-##################################################################
+-# Assertions
+-#
+-
+-__all__ += ["assert_equal", "assert_lines_match"]
+-
+-def assert_equal(got, expect, msg=""):
+-    if got == expect:
+-        return
+-    if msg:
+-        msg += "\n"
+-    raise AssertionError("%sgot:\n  %s\nexpected:\n  %s" %
+-                         (msg, str(got).replace("\n", "\n  "),
+-                          str(expect).replace("\n", "\n  ")))
+-
+-def assert_lines_match(text, *regexps, **kw):
+-    """Assert that all of regexps match some line in text.  If a 'no'
+-    keyword argument is given, it must be a list of regexps that must
+-    *not* match any line in text."""
+-
+-    def assert_lines_match_kw(no=[]):
+-        return no
+-    no = assert_lines_match_kw(**kw)
+-
+-    # Check text against regexps
+-    lines = text.splitlines()
+-    good = set()
+-    bad = set()
+-    for i, line in enumerate(lines):
+-        if any(re.match(r, line) for r in regexps):
+-            good.add(i)
+-            regexps = [r for r in regexps if not re.match(r, line)]
+-        if any(re.match(r, line) for r in no):
+-            bad.add(i)
+-
+-    if not regexps and not bad:
+-        return
+-
+-    # We failed; construct an informative failure message
+-    show = set()
+-    for lineno in good.union(bad):
+-        for offset in range(-2, 3):
+-            show.add(lineno + offset)
+-    if regexps:
+-        show.update(n for n in range(len(lines) - 5, len(lines)))
+-
+-    msg = []
+-    last = -1
+-    for lineno in sorted(show):
+-        if 0 <= lineno < len(lines):
+-            if lineno != last + 1:
+-                msg.append("...")
+-            last = lineno
+-            msg.append("%s %s" % (color("red", "BAD ") if lineno in bad else
+-                                  color("green", "GOOD") if lineno in good
+-                                  else "    ",
+-                                  lines[lineno]))
+-    if last != len(lines) - 1:
+-        msg.append("...")
+-    if bad:
+-        msg.append("unexpected lines in output")
+-    for r in regexps:
+-        msg.append(color("red", "MISSING") + " '%s'" % r)
+-    raise AssertionError("\n".join(msg))
+-
+-##################################################################
+-# Utilities
+-#
+-
+-__all__ += ["make", "maybe_unlink", "reset_fs", "color", "random_str", "check_time", "check_answers"]
+-
+-MAKE_TIMESTAMP = 0
+-
+-def pre_make():
+-    """Delay prior to running make to ensure file mtimes change."""
+-    while int(time.time()) == MAKE_TIMESTAMP:
+-        time.sleep(0.1)
+-
+-def post_make():
+-    """Record the time after make completes so that the next run of
+-    make can be delayed if needed."""
+-    global MAKE_TIMESTAMP
+-    MAKE_TIMESTAMP = int(time.time())
+-
+-def make(*target):
+-    pre_make()
+-    if Popen(("make",) + target).wait():
+-        sys.exit(1)
+-    post_make()
+-
+-def show_command(cmd):
+-    from pipes import quote
+-    print("\n$", " ".join(map(quote, cmd)))
+-
+-def maybe_unlink(*paths):
+-    for path in paths:
+-        try:
+-            os.unlink(path)
+-        except EnvironmentError as e:
+-            if e.errno != errno.ENOENT:
+-                raise
+-
+-COLORS = {"default": "\033[0m", "red": "\033[31m", "green": "\033[32m"}
+-
+-def color(name, text):
+-    if options.color == "always" or (options.color == "auto" and os.isatty(1)):
+-        return COLORS[name] + text + COLORS["default"]
+-    return text
+-
+-def reset_fs():
+-    if os.path.exists("obj/fs/clean-fs.img"):
+-        shutil.copyfile("obj/fs/clean-fs.img", "obj/fs/fs.img")
+-
+-def random_str(n=8):
+-    letters = string.ascii_letters + string.digits
+-    return ''.join(random.choice(letters) for _ in range(n))
+-
+-def check_time():
+-    try:
+-        print("")
+-        with open('time.txt') as f:
+-            d = f.read().strip()
+-            if not re.match(r'^\d+$', d):
+-                raise AssertionError('time.txt does not contain a single integer (number of hours spent on the lab)')
+-    except IOError:
+-        raise AssertionError('Cannot read time.txt')
+-
+-def check_answers(file, n=10):
+-    try:
+-        with open(file) as f:
+-            d = f.read().strip()
+-            if len(d) < n:
+-                raise AssertionError('%s does not seem to contain enough text' % file)
+-    except IOError:
+-        raise AssertionError('Cannot read %s' % file)
+-
+-
+-##################################################################
+-# Controllers
+-#
+-
+-__all__ += ["QEMU", "GDBClient"]
+-
+-class QEMU(object):
+-    _GDBPORT = None
+-
+-    def __init__(self, *make_args):
+-        # Check that QEMU is not currently running
+-        try:
+-            GDBClient(self.get_gdb_port(), timeout=0).close()
+-        except socket.error:
+-            pass
+-        else:
+-            print("""\
+-GDB stub found on port %d.
+-QEMU appears to already be running.  Please exit it if possible or use
+-'killall qemu' or 'killall qemu.real'.""" % self.get_gdb_port(), file=sys.stderr)
+-            sys.exit(1)
+-
+-        if options.verbose:
+-            show_command(("make",) + make_args)
+-        cmd = ("make", "-s", "--no-print-directory") + make_args
+-        self.proc = Popen(cmd, stdout=subprocess.PIPE,
+-                          stderr=subprocess.STDOUT,
+-                          stdin=subprocess.PIPE)
+-        # Accumulated output as a string
+-        self.output = ""
+-        # Accumulated output as a bytearray
+-        self.outbytes = bytearray()
+-        self.on_output = []
+-
+-    @staticmethod
+-    def get_gdb_port():
+-        if QEMU._GDBPORT is None:
+-            p = Popen(["make", "-s", "--no-print-directory", "print-gdbport"],
+-                      stdout=subprocess.PIPE)
+-            (out, _) = p.communicate()
+-            if p.returncode:
+-                raise RuntimeError(
+-                    "Failed to get gdbport: make exited with %d" %
+-                    p.returncode)
+-            QEMU._GDBPORT = int(out)
+-        return QEMU._GDBPORT
+-
+-    def fileno(self):
+-        if self.proc:
+-            return self.proc.stdout.fileno()
+-
+-    def handle_read(self):
+-        buf = os.read(self.proc.stdout.fileno(), 4096)
+-        self.outbytes.extend(buf)
+-        self.output = self.outbytes.decode("utf-8", "replace")
+-        for callback in self.on_output:
+-            callback(buf)
+-        if buf == b"":
+-            self.wait()
+-            return
+-
+-    def write(self, buf):
+-        if isinstance(buf, str):
+-            buf = buf.encode('utf-8')
+-        self.proc.stdin.write(buf)
+-        self.proc.stdin.flush()
+-
+-    def wait(self):
+-        if self.proc:
+-            self.proc.wait()
+-            self.proc = None
+-
+-    def kill(self):
+-        if self.proc:
+-            self.proc.terminate()
+-
+-class GDBClient(object):
+-    def __init__(self, port, timeout=15):
+-        start = time.time()
+-        while True:
+-            self.sock = socket.socket()
+-            try:
+-                self.sock.settimeout(1)
+-                self.sock.connect(("localhost", port))
+-                break
+-            except socket.error:
+-                if time.time() >= start + timeout:
+-                    raise
+-        self.__buf = ""
+-
+-    def fileno(self):
+-        if self.sock:
+-            return self.sock.fileno()
+-
+-    def handle_read(self):
+-        try:
+-            data = self.sock.recv(4096).decode("ascii", "replace")
+-        except socket.error:
+-            data = ""
+-        if data == "":
+-            self.sock.close()
+-            self.sock = None
+-            return
+-        self.__buf += data
+-
+-        while True:
+-            m = re.search(r"\$([^#]*)#[0-9a-zA-Z]{2}", self.__buf)
+-            if not m:
+-                break
+-            pkt = m.group(1)
+-            self.__buf = self.__buf[m.end():]
+-
+-            if pkt.startswith("T05"):
+-                # Breakpoint
+-                raise TerminateTest
+-
+-    def __send(self, cmd):
+-        packet = "$%s#%02x" % (cmd, sum(map(ord, cmd)) % 256)
+-        self.sock.sendall(packet.encode("ascii"))
+-
+-    def __send_break(self):
+-        self.sock.sendall(b"\x03")
+-
+-    def close(self):
+-        if self.sock:
+-            self.sock.close()
+-            self.sock = None
+-
+-    def cont(self):
+-        self.__send("c")
+-
+-    def breakpoint(self, addr):
+-        self.__send("Z1,%x,1" % addr)
+-
+-
+-##################################################################
+-# QEMU test runner
+-#
+-
+-__all__ += ["TerminateTest", "Runner"]
+-
+-class TerminateTest(Exception):
+-    pass
+-
+-class Runner():
+-    def __init__(self, *default_monitors):
+-        self.__default_monitors = default_monitors
+-
+-    def run_qemu(self, *monitors, **kw):
+-        """Run a QEMU-based test.  monitors should functions that will
+-        be called with this Runner instance once QEMU and GDB are
+-        started.  Typically, they should register callbacks that throw
+-        TerminateTest when stop events occur.  The target_base
+-        argument gives the make target to run.  The make_args argument
+-        should be a list of additional arguments to pass to make.  The
+-        timeout argument bounds how long to run before returning."""
+-
+-        def run_qemu_kw(target_base="qemu", make_args=[], timeout=30):
+-            return target_base, make_args, timeout
+-        target_base, make_args, timeout = run_qemu_kw(**kw)
+-
+-        # Start QEMU
+-        pre_make()
+-        self.qemu = QEMU(target_base + "-gdb", *make_args)
+-        self.gdb = None
+-
+-        try:
+-            # Wait for QEMU to start or make to fail.  This will set
+-            # self.gdb if QEMU starts.
+-            self.qemu.on_output = [self.__monitor_start]
+-            self.__react([self.qemu], timeout=90)
+-            self.qemu.on_output = []
+-            if self.gdb is None:
+-                print("Failed to connect to QEMU; output:")
+-                print(self.qemu.output)
+-                sys.exit(1)
+-            post_make()
+-
+-            # QEMU and GDB are up
+-            self.reactors = [self.qemu, self.gdb]
+-
+-            # Start monitoring
+-            for m in self.__default_monitors + monitors:
+-                m(self)
+-
+-            # Run and react
+-            self.gdb.cont()
+-            self.__react(self.reactors, timeout)
+-        finally:
+-            # Shutdown QEMU
+-            try:
+-                if self.gdb is None:
+-                    sys.exit(1)
+-                self.qemu.kill()
+-                self.__react(self.reactors, 5)
+-                self.gdb.close()
+-                self.qemu.wait()
+-            except:
+-                print("""\
+-Failed to shutdown QEMU.  You might need to 'killall qemu' or
+-'killall qemu.real'.
+-""")
+-                raise
+-
+-    def __monitor_start(self, output):
+-        if b"\n" in output:
+-            try:
+-                self.gdb = GDBClient(self.qemu.get_gdb_port(), timeout=2)
+-                raise TerminateTest
+-            except socket.error:
+-                pass
+-        if not len(output):
+-            raise TerminateTest
+-
+-    def __react(self, reactors, timeout):
+-        deadline = time.time() + timeout
+-        try:
+-            while True:
+-                timeleft = deadline - time.time()
+-                if timeleft < 0:
+-                    sys.stdout.write("Timeout! ")
+-                    sys.stdout.flush()
+-                    return
+-
+-                rset = [r for r in reactors if r.fileno() is not None]
+-                if not rset:
+-                    return
+-
+-                rset, _, _ = select.select(rset, [], [], timeleft)
+-                for reactor in rset:
+-                    reactor.handle_read()
+-        except TerminateTest:
+-            pass
+-
+-    def user_test(self, binary, *monitors, **kw):
+-        """Run a user test using the specified binary.  Monitors and
+-        keyword arguments are as for run_qemu.  This runs on a disk
+-        snapshot unless the keyword argument 'snapshot' is False."""
+-
+-        maybe_unlink("obj/kern/init.o", "obj/kern/kernel")
+-        if kw.pop("snapshot", True):
+-            kw.setdefault("make_args", []).append("QEMUEXTRA+=-snapshot")
+-        self.run_qemu(target_base="run-%s" % binary, *monitors, **kw)
+-
+-    def match(self, *args, **kwargs):
+-        """Shortcut to call assert_lines_match on the most recent QEMU
+-        output."""
+-
+-        assert_lines_match(self.qemu.output, *args, **kwargs)
+-
+-##################################################################
+-# Monitors
+-#
+-
+-__all__ += ["save", "stop_breakpoint", "call_on_line", "stop_on_line", "shell_script"]
+-
+-def save(path):
+-    """Return a monitor that writes QEMU's output to path.  If the
+-    test fails, copy the output to path.test-name."""
+-
+-    def setup_save(runner):
+-        f.seek(0)
+-        f.truncate()
+-        runner.qemu.on_output.append(f.write)
+-        get_current_test().on_finish.append(save_on_finish)
+-
+-    def save_on_finish(fail):
+-        f.flush()
+-        save_path = path + "." + get_current_test().__name__[5:]
+-        if fail:
+-            shutil.copyfile(path, save_path)
+-            print("    QEMU output saved to %s" % save_path)
+-        elif os.path.exists(save_path):
+-            os.unlink(save_path)
+-            print("    (Old %s failure log removed)" % save_path)
+-
+-    f = open(path, "wb")
+-    return setup_save
+-
+-def stop_breakpoint(addr):
+-    """Returns a monitor that stops when addr is reached.  addr may be
+-    a number or the name of a symbol."""
+-
+-    def setup_breakpoint(runner):
+-        if isinstance(addr, str):
+-            addrs = [int(sym[:16], 16) for sym in open("kernel/kernel.sym")
+-                     if sym[17:].strip() == addr]
+-            assert len(addrs), "Symbol %s not found" % addr
+-            runner.gdb.breakpoint(addrs[0])
+-        else:
+-            runner.gdb.breakpoint(addr)
+-    return setup_breakpoint
+-
+-def call_on_line(regexp, callback):
+-    """Returns a monitor that calls 'callback' when QEMU prints a line
+-    matching 'regexp'."""
+-
+-    def setup_call_on_line(runner):
+-        buf = bytearray()
+-        def handle_output(output):
+-            buf.extend(output)
+-            while b"\n" in buf:
+-                line, buf[:] = buf.split(b"\n", 1)
+-                line = line.decode("utf-8", "replace")
+-                if re.match(regexp, line):
+-                    callback(line)
+-        runner.qemu.on_output.append(handle_output)
+-    return setup_call_on_line
+-
+-def stop_on_line(regexp):
+-    """Returns a monitor that stops when QEMU prints a line matching
+-    'regexp'."""
+-
+-    def stop(line):
+-        raise TerminateTest
+-    return call_on_line(regexp, stop)
+-
+-def shell_script(script, terminate_match=None):
+-    """Returns a monitor that plays the script, and stops when the script is
+-    done executing."""
+-
+-    def setup_call_on_line(runner):
+-        class context:
+-            n = 0
+-            buf = bytearray()
+-        def handle_output(output):
+-            context.buf.extend(output)
+-            if terminate_match is not None:
+-                if re.match(terminate_match, context.buf.decode('utf-8', 'replace')):
+-                    raise TerminateTest
+-            if b'$ ' in context.buf:
+-                context.buf = bytearray()
+-                if context.n < len(script):
+-                    runner.qemu.write(script[context.n])
+-                    runner.qemu.write('\n')
+-                    context.n += 1
+-                else:
+-                    if terminate_match is None:
+-                        raise TerminateTest
+-        runner.qemu.on_output.append(handle_output)
+-    return setup_call_on_line
+-
++from __future__ import print_function
++
++import sys, os, re, time, socket, select, subprocess, errno, shutil, random, string
++from subprocess import check_call, Popen
++from optparse import OptionParser
++
++__all__ = []
++
++##################################################################
++# Test structure
++#
++
++__all__ += ["test", "end_part", "run_tests", "get_current_test"]
++
++TESTS = []
++TOTAL = POSSIBLE = 0
++PART_TOTAL = PART_POSSIBLE = 0
++CURRENT_TEST = None
++
++def test(points, title=None, parent=None):
++    """Decorator for declaring test functions.  If title is None, the
++    title of the test will be derived from the function name by
++    stripping the leading "test_" and replacing underscores with
++    spaces."""
++
++    def register_test(fn, title=title):
++        if not title:
++            assert fn.__name__.startswith("test_")
++            title = fn.__name__[5:].replace("_", " ")
++        if parent:
++            title = "  " + title
++
++        def run_test():
++            global TOTAL, POSSIBLE, CURRENT_TEST
++
++            # Handle test dependencies
++            if run_test.complete:
++                return run_test.ok
++            run_test.complete = True
++            parent_failed = False
++            if parent:
++                parent_failed = not parent()
++
++            # Run the test
++            fail = None
++            start = time.time()
++            CURRENT_TEST = run_test
++            sys.stdout.write("== Test %s == " % title)
++            if parent:
++                sys.stdout.write("\n")
++            sys.stdout.flush()
++            try:
++                if parent_failed:
++                    raise AssertionError('Parent failed: %s' % parent.__name__)
++                fn()
++            except AssertionError as e:
++                fail = str(e)
++
++            # Display and handle test result
++            POSSIBLE += points
++            if points:
++                print("%s: %s" % (title, \
++                    (color("red", "FAIL") if fail else color("green", "OK"))), end=' ')
++            if time.time() - start > 0.1:
++                print("(%.1fs)" % (time.time() - start), end=' ')
++            print()
++            if fail:
++                print("    %s" % fail.replace("\n", "\n    "))
++            else:
++                TOTAL += points
++            for callback in run_test.on_finish:
++                callback(fail)
++            CURRENT_TEST = None
++
++            run_test.ok = not fail
++            return run_test.ok
++
++        # Record test metadata on the test wrapper function
++        run_test.__name__ = fn.__name__
++        run_test.title = title
++        run_test.complete = False
++        run_test.ok = False
++        run_test.on_finish = []
++        TESTS.append(run_test)
++        return run_test
++    return register_test
++
++def end_part(name):
++    def show_part():
++        global PART_TOTAL, PART_POSSIBLE
++        print("Part %s score: %d/%d" % \
++            (name, TOTAL - PART_TOTAL, POSSIBLE - PART_POSSIBLE))
++        print()
++        PART_TOTAL, PART_POSSIBLE = TOTAL, POSSIBLE
++    show_part.title = ""
++    TESTS.append(show_part)
++
++def run_tests():
++    """Set up for testing and run the registered test functions."""
++
++    # Handle command line
++    global options
++    parser = OptionParser(usage="usage: %prog [-v] [filters...]")
++    parser.add_option("-v", "--verbose", action="store_true",
++                      help="print commands")
++    parser.add_option("--color", choices=["never", "always", "auto"],
++                      default="auto", help="never, always, or auto")
++    (options, args) = parser.parse_args()
++
++    # Start with a full build to catch build errors
++    make()
++
++    # Clean the file system if there is one
++    reset_fs()
++
++    # Run tests
++    limit = list(map(str.lower, args))
++    try:
++        for test in TESTS:
++            if not limit or any(l in test.title.lower() for l in limit):
++                test()
++        if not limit:
++            print("Score: %d/%d" % (TOTAL, POSSIBLE))
++    except KeyboardInterrupt:
++        pass
++    if TOTAL < POSSIBLE:
++        sys.exit(1)
++
++def get_current_test():
++    if not CURRENT_TEST:
++        raise RuntimeError("No test is running")
++    return CURRENT_TEST
++
++##################################################################
++# Assertions
++#
++
++__all__ += ["assert_equal", "assert_lines_match"]
++
++def assert_equal(got, expect, msg=""):
++    if got == expect:
++        return
++    if msg:
++        msg += "\n"
++    raise AssertionError("%sgot:\n  %s\nexpected:\n  %s" %
++                         (msg, str(got).replace("\n", "\n  "),
++                          str(expect).replace("\n", "\n  ")))
++
++def assert_lines_match(text, *regexps, **kw):
++    """Assert that all of regexps match some line in text.  If a 'no'
++    keyword argument is given, it must be a list of regexps that must
++    *not* match any line in text."""
++
++    def assert_lines_match_kw(no=[]):
++        return no
++    no = assert_lines_match_kw(**kw)
++
++    # Check text against regexps
++    lines = text.splitlines()
++    good = set()
++    bad = set()
++    for i, line in enumerate(lines):
++        if any(re.match(r, line) for r in regexps):
++            good.add(i)
++            regexps = [r for r in regexps if not re.match(r, line)]
++        if any(re.match(r, line) for r in no):
++            bad.add(i)
++
++    if not regexps and not bad:
++        return
++
++    # We failed; construct an informative failure message
++    show = set()
++    for lineno in good.union(bad):
++        for offset in range(-2, 3):
++            show.add(lineno + offset)
++    if regexps:
++        show.update(n for n in range(len(lines) - 5, len(lines)))
++
++    msg = []
++    last = -1
++    for lineno in sorted(show):
++        if 0 <= lineno < len(lines):
++            if lineno != last + 1:
++                msg.append("...")
++            last = lineno
++            msg.append("%s %s" % (color("red", "BAD ") if lineno in bad else
++                                  color("green", "GOOD") if lineno in good
++                                  else "    ",
++                                  lines[lineno]))
++    if last != len(lines) - 1:
++        msg.append("...")
++    if bad:
++        msg.append("unexpected lines in output")
++    for r in regexps:
++        msg.append(color("red", "MISSING") + " '%s'" % r)
++    raise AssertionError("\n".join(msg))
++
++##################################################################
++# Utilities
++#
++
++__all__ += ["make", "maybe_unlink", "reset_fs", "color", "random_str", "check_time", "check_answers"]
++
++MAKE_TIMESTAMP = 0
++
++def pre_make():
++    """Delay prior to running make to ensure file mtimes change."""
++    while int(time.time()) == MAKE_TIMESTAMP:
++        time.sleep(0.1)
++
++def post_make():
++    """Record the time after make completes so that the next run of
++    make can be delayed if needed."""
++    global MAKE_TIMESTAMP
++    MAKE_TIMESTAMP = int(time.time())
++
++def make(*target):
++    pre_make()
++    if Popen(("make",) + target).wait():
++        sys.exit(1)
++    post_make()
++
++def show_command(cmd):
++    from pipes import quote
++    print("\n$", " ".join(map(quote, cmd)))
++
++def maybe_unlink(*paths):
++    for path in paths:
++        try:
++            os.unlink(path)
++        except EnvironmentError as e:
++            if e.errno != errno.ENOENT:
++                raise
++
++COLORS = {"default": "\033[0m", "red": "\033[31m", "green": "\033[32m"}
++
++def color(name, text):
++    if options.color == "always" or (options.color == "auto" and os.isatty(1)):
++        return COLORS[name] + text + COLORS["default"]
++    return text
++
++def reset_fs():
++    if os.path.exists("obj/fs/clean-fs.img"):
++        shutil.copyfile("obj/fs/clean-fs.img", "obj/fs/fs.img")
++
++def random_str(n=8):
++    letters = string.ascii_letters + string.digits
++    return ''.join(random.choice(letters) for _ in range(n))
++
++def check_time():
++    try:
++        print("")
++        with open('time.txt') as f:
++            d = f.read().strip()
++            if not re.match(r'^\d+$', d):
++                raise AssertionError('time.txt does not contain a single integer (number of hours spent on the lab)')
++    except IOError:
++        raise AssertionError('Cannot read time.txt')
++
++def check_answers(file, n=10):
++    try:
++        with open(file) as f:
++            d = f.read().strip()
++            if len(d) < n:
++                raise AssertionError('%s does not seem to contain enough text' % file)
++    except IOError:
++        raise AssertionError('Cannot read %s' % file)
++
++
++##################################################################
++# Controllers
++#
++
++__all__ += ["QEMU", "GDBClient"]
++
++class QEMU(object):
++    _GDBPORT = None
++
++    def __init__(self, *make_args):
++        # Check that QEMU is not currently running
++        try:
++            GDBClient(self.get_gdb_port(), timeout=0).close()
++        except socket.error:
++            pass
++        else:
++            print("""\
++GDB stub found on port %d.
++QEMU appears to already be running.  Please exit it if possible or use
++'killall qemu' or 'killall qemu.real'.""" % self.get_gdb_port(), file=sys.stderr)
++            sys.exit(1)
++
++        if options.verbose:
++            show_command(("make",) + make_args)
++        cmd = ("make", "-s", "--no-print-directory") + make_args
++        self.proc = Popen(cmd, stdout=subprocess.PIPE,
++                          stderr=subprocess.STDOUT,
++                          stdin=subprocess.PIPE)
++        # Accumulated output as a string
++        self.output = ""
++        # Accumulated output as a bytearray
++        self.outbytes = bytearray()
++        self.on_output = []
++
++    @staticmethod
++    def get_gdb_port():
++        if QEMU._GDBPORT is None:
++            p = Popen(["make", "-s", "--no-print-directory", "print-gdbport"],
++                      stdout=subprocess.PIPE)
++            (out, _) = p.communicate()
++            if p.returncode:
++                raise RuntimeError(
++                    "Failed to get gdbport: make exited with %d" %
++                    p.returncode)
++            QEMU._GDBPORT = int(out)
++        return QEMU._GDBPORT
++
++    def fileno(self):
++        if self.proc:
++            return self.proc.stdout.fileno()
++
++    def handle_read(self):
++        buf = os.read(self.proc.stdout.fileno(), 4096)
++        self.outbytes.extend(buf)
++        self.output = self.outbytes.decode("utf-8", "replace")
++        for callback in self.on_output:
++            callback(buf)
++        if buf == b"":
++            self.wait()
++            return
++
++    def write(self, buf):
++        if isinstance(buf, str):
++            buf = buf.encode('utf-8')
++        self.proc.stdin.write(buf)
++        self.proc.stdin.flush()
++
++    def wait(self):
++        if self.proc:
++            self.proc.wait()
++            self.proc = None
++
++    def kill(self):
++        if self.proc:
++            self.proc.terminate()
++
++class GDBClient(object):
++    def __init__(self, port, timeout=15):
++        start = time.time()
++        while True:
++            self.sock = socket.socket()
++            try:
++                self.sock.settimeout(1)
++                self.sock.connect(("localhost", port))
++                break
++            except socket.error:
++                if time.time() >= start + timeout:
++                    raise
++        self.__buf = ""
++
++    def fileno(self):
++        if self.sock:
++            return self.sock.fileno()
++
++    def handle_read(self):
++        try:
++            data = self.sock.recv(4096).decode("ascii", "replace")
++        except socket.error:
++            data = ""
++        if data == "":
++            self.sock.close()
++            self.sock = None
++            return
++        self.__buf += data
++
++        while True:
++            m = re.search(r"\$([^#]*)#[0-9a-zA-Z]{2}", self.__buf)
++            if not m:
++                break
++            pkt = m.group(1)
++            self.__buf = self.__buf[m.end():]
++
++            if pkt.startswith("T05"):
++                # Breakpoint
++                raise TerminateTest
++
++    def __send(self, cmd):
++        packet = "$%s#%02x" % (cmd, sum(map(ord, cmd)) % 256)
++        self.sock.sendall(packet.encode("ascii"))
++
++    def __send_break(self):
++        self.sock.sendall(b"\x03")
++
++    def close(self):
++        if self.sock:
++            self.sock.close()
++            self.sock = None
++
++    def cont(self):
++        self.__send("c")
++
++    def breakpoint(self, addr):
++        self.__send("Z1,%x,1" % addr)
++
++
++##################################################################
++# QEMU test runner
++#
++
++__all__ += ["TerminateTest", "Runner"]
++
++class TerminateTest(Exception):
++    pass
++
++class Runner():
++    def __init__(self, *default_monitors):
++        self.__default_monitors = default_monitors
++
++    def run_qemu(self, *monitors, **kw):
++        """Run a QEMU-based test.  monitors should functions that will
++        be called with this Runner instance once QEMU and GDB are
++        started.  Typically, they should register callbacks that throw
++        TerminateTest when stop events occur.  The target_base
++        argument gives the make target to run.  The make_args argument
++        should be a list of additional arguments to pass to make.  The
++        timeout argument bounds how long to run before returning."""
++
++        def run_qemu_kw(target_base="qemu", make_args=[], timeout=30):
++            return target_base, make_args, timeout
++        target_base, make_args, timeout = run_qemu_kw(**kw)
++
++        # Start QEMU
++        pre_make()
++        self.qemu = QEMU(target_base + "-gdb", *make_args)
++        self.gdb = None
++
++        try:
++            # Wait for QEMU to start or make to fail.  This will set
++            # self.gdb if QEMU starts.
++            self.qemu.on_output = [self.__monitor_start]
++            self.__react([self.qemu], timeout=90)
++            self.qemu.on_output = []
++            if self.gdb is None:
++                print("Failed to connect to QEMU; output:")
++                print(self.qemu.output)
++                sys.exit(1)
++            post_make()
++
++            # QEMU and GDB are up
++            self.reactors = [self.qemu, self.gdb]
++
++            # Start monitoring
++            for m in self.__default_monitors + monitors:
++                m(self)
++
++            # Run and react
++            self.gdb.cont()
++            self.__react(self.reactors, timeout)
++        finally:
++            # Shutdown QEMU
++            try:
++                if self.gdb is None:
++                    sys.exit(1)
++                self.qemu.kill()
++                self.__react(self.reactors, 5)
++                self.gdb.close()
++                self.qemu.wait()
++            except:
++                print("""\
++Failed to shutdown QEMU.  You might need to 'killall qemu' or
++'killall qemu.real'.
++""")
++                raise
++
++    def __monitor_start(self, output):
++        if b"\n" in output:
++            try:
++                self.gdb = GDBClient(self.qemu.get_gdb_port(), timeout=2)
++                raise TerminateTest
++            except socket.error:
++                pass
++        if not len(output):
++            raise TerminateTest
++
++    def __react(self, reactors, timeout):
++        deadline = time.time() + timeout
++        try:
++            while True:
++                timeleft = deadline - time.time()
++                if timeleft < 0:
++                    sys.stdout.write("Timeout! ")
++                    sys.stdout.flush()
++                    return
++
++                rset = [r for r in reactors if r.fileno() is not None]
++                if not rset:
++                    return
++
++                rset, _, _ = select.select(rset, [], [], timeleft)
++                for reactor in rset:
++                    reactor.handle_read()
++        except TerminateTest:
++            pass
++
++    def user_test(self, binary, *monitors, **kw):
++        """Run a user test using the specified binary.  Monitors and
++        keyword arguments are as for run_qemu.  This runs on a disk
++        snapshot unless the keyword argument 'snapshot' is False."""
++
++        maybe_unlink("obj/kern/init.o", "obj/kern/kernel")
++        if kw.pop("snapshot", True):
++            kw.setdefault("make_args", []).append("QEMUEXTRA+=-snapshot")
++        self.run_qemu(target_base="run-%s" % binary, *monitors, **kw)
++
++    def match(self, *args, **kwargs):
++        """Shortcut to call assert_lines_match on the most recent QEMU
++        output."""
++
++        assert_lines_match(self.qemu.output, *args, **kwargs)
++
++##################################################################
++# Monitors
++#
++
++__all__ += ["save", "stop_breakpoint", "call_on_line", "stop_on_line", "shell_script"]
++
++def save(path):
++    """Return a monitor that writes QEMU's output to path.  If the
++    test fails, copy the output to path.test-name."""
++
++    def setup_save(runner):
++        f.seek(0)
++        f.truncate()
++        runner.qemu.on_output.append(f.write)
++        get_current_test().on_finish.append(save_on_finish)
++
++    def save_on_finish(fail):
++        f.flush()
++        save_path = path + "." + get_current_test().__name__[5:]
++        if fail:
++            shutil.copyfile(path, save_path)
++            print("    QEMU output saved to %s" % save_path)
++        elif os.path.exists(save_path):
++            os.unlink(save_path)
++            print("    (Old %s failure log removed)" % save_path)
++
++    f = open(path, "wb")
++    return setup_save
++
++def stop_breakpoint(addr):
++    """Returns a monitor that stops when addr is reached.  addr may be
++    a number or the name of a symbol."""
++
++    def setup_breakpoint(runner):
++        if isinstance(addr, str):
++            addrs = [int(sym[:16], 16) for sym in open("kernel/kernel.sym")
++                     if sym[17:].strip() == addr]
++            assert len(addrs), "Symbol %s not found" % addr
++            runner.gdb.breakpoint(addrs[0])
++        else:
++            runner.gdb.breakpoint(addr)
++    return setup_breakpoint
++
++def call_on_line(regexp, callback):
++    """Returns a monitor that calls 'callback' when QEMU prints a line
++    matching 'regexp'."""
++
++    def setup_call_on_line(runner):
++        buf = bytearray()
++        def handle_output(output):
++            buf.extend(output)
++            while b"\n" in buf:
++                line, buf[:] = buf.split(b"\n", 1)
++                line = line.decode("utf-8", "replace")
++                if re.match(regexp, line):
++                    callback(line)
++        runner.qemu.on_output.append(handle_output)
++    return setup_call_on_line
++
++def stop_on_line(regexp):
++    """Returns a monitor that stops when QEMU prints a line matching
++    'regexp'."""
++
++    def stop(line):
++        raise TerminateTest
++    return call_on_line(regexp, stop)
++
++def shell_script(script, terminate_match=None):
++    """Returns a monitor that plays the script, and stops when the script is
++    done executing."""
++
++    def setup_call_on_line(runner):
++        class context:
++            n = 0
++            buf = bytearray()
++        def handle_output(output):
++            context.buf.extend(output)
++            if terminate_match is not None:
++                if re.match(terminate_match, context.buf.decode('utf-8', 'replace')):
++                    raise TerminateTest
++            if b'$ ' in context.buf:
++                context.buf = bytearray()
++                if context.n < len(script):
++                    runner.qemu.write(script[context.n])
++                    runner.qemu.write('\n')
++                    context.n += 1
++                else:
++                    if terminate_match is None:
++                        raise TerminateTest
++        runner.qemu.on_output.append(handle_output)
++    return setup_call_on_line
++
+diff --git a/user/lab01basic.c b/user/lab01basic.c
+index e01a35b..1d6715e 100644
+--- a/user/lab01basic.c
++++ b/user/lab01basic.c
+@@ -1,59 +1,59 @@
+-/****************************************************************************
+- * Copyright © 2022 Rose-Hulman Institute of Technology
+- *
+- * Permission is hereby granted, free of charge, to any person obtaining a copy
+- * of this software and associated documentation files (the “Software”), to deal
+- * in the Software without restriction, including without limitation the rights
+- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+- * copies of the Software, and to permit persons to whom the Software is
+- * furnished to do so, subject to the following conditions:
+- *
+- * The above copyright notice and this permission notice shall be included in
+- * all copies or substantial portions of the Software.
+- *
+- * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+- * IN THE SOFTWARE.
+- ****************************************************************************/
+-#include "kernel/types.h"
+-#include "user/user.h"
+-
+-#define NB 10
+-
+-static void test_case1(void)
+-{
+-  char *ptr;
+-  int i;
+-
+-  printf("TestCase1: Start\n");
+-  
+-  ptr = rhmalloc(NB);
+-  if(!ptr) {
+-    printf("TestCase1:Fail:rhmalloc(%d) FAILED.\n", NB);
+-    exit(1);
+-  }
+-  printf("TestCase1:rhmalloc(%d): Ok.\n", NB);
+-
+-  /* fill bytes with a */
+-  for(i = 0; i < NB - 1; i++)
+-    ptr[i] = 'a';
+-  ptr[NB-1] = '\0';
+-  printf("\tTestCase1:%s\n", ptr);
+-
+-  /* free the bytes */
+-  rhfree(ptr);
+-  printf("TestCase1:rhfree: Ok.\n");
+-
+-  return;
+-}
+-
+-int main(int argc, char **argv)
+-{
+-  test_case1();
+-
+-  exit(0);
+-}
++/****************************************************************************
++ * Copyright © 2022 Rose-Hulman Institute of Technology
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a copy
++ * of this software and associated documentation files (the “Software”), to deal
++ * in the Software without restriction, including without limitation the rights
++ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++ * copies of the Software, and to permit persons to whom the Software is
++ * furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice shall be included in
++ * all copies or substantial portions of the Software.
++ *
++ * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
++ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
++ * IN THE SOFTWARE.
++ ****************************************************************************/
++#include "kernel/types.h"
++#include "user/user.h"
++
++#define NB 10
++
++static void test_case1(void)
++{
++  char *ptr;
++  int i;
++
++  printf("TestCase1: Start\n");
++  
++  ptr = rhmalloc(NB);
++  if(!ptr) {
++    printf("TestCase1:Fail:rhmalloc(%d) FAILED.\n", NB);
++    exit(1);
++  }
++  printf("TestCase1:rhmalloc(%d): Ok.\n", NB);
++
++  /* fill bytes with a */
++  for(i = 0; i < NB - 1; i++)
++    ptr[i] = 'a';
++  ptr[NB-1] = '\0';
++  printf("\tTestCase1:%s\n", ptr);
++
++  /* free the bytes */
++  rhfree(ptr);
++  printf("TestCase1:rhfree: Ok.\n");
++
++  return;
++}
++
++int main(int argc, char **argv)
++{
++  test_case1();
++
++  exit(0);
++}
+diff --git a/user/lab01test.c b/user/lab01test.c
+index 00a140c..83f8804 100644
+--- a/user/lab01test.c
++++ b/user/lab01test.c
+@@ -1,560 +1,560 @@
+-/****************************************************************************
+- * Copyright © 2022 Rose-Hulman Institute of Technology
+- *
+- * Permission is hereby granted, free of charge, to any person obtaining a copy
+- * of this software and associated documentation files (the “Software”), to deal
+- * in the Software without restriction, including without limitation the rights
+- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+- * copies of the Software, and to permit persons to whom the Software is
+- * furnished to do so, subject to the following conditions:
+- *
+- * The above copyright notice and this permission notice shall be included in
+- * all copies or substantial portions of the Software.
+- *
+- * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+- * IN THE SOFTWARE.
+- ****************************************************************************/
+-#include "kernel/types.h"
+-#include "user/user.h"
+-#include "user/rhtest.h"
+-#include "user/rhmalloc.h"
+-
+-#define HEAP_MEM_START heap_start()
+-
+-/* Simple random number generator ported from grind.c */
+-unsigned long rand_next = 1;
+-int rand(void);
+-
+-/**
+- * This is a bit tricky. We only want to free all in case the freelist head is
+- * occupied, otherwise, very bad things can happen.
+- */
+-static void reset_if_needed(void)
+-{
+-  if(freelist_head()) rhfree_all();
+-}
+-
+-/**
+- * Test basic allocation strategies.
+- *
+- * @warning This routine does not free the memory it allocates, so make sure to
+- * reset after calling it.
+- */
+-static void test_basic_alloc(void)
+-{
+-  void *ptr;
+-  metadata_t *entry, *nentry, *nnentry;
+-
+-  reset_if_needed();
+-
+-  /* Try to allocate 80 bytes */
+-  ptr = rhmalloc(80);
+-  rhassert_ptr_equals(ptr, HEAP_MEM_START + sizeof(metadata_t));
+-  
+-  /* check the created entry in the freelist */
+-  entry = freelist_head();
+-  rhassert_ptr_equals(entry, HEAP_MEM_START);
+-  rhassert_int_equals(entry->s.size, 80);
+-  rhassert_int_equals(entry->s.in_use, 1);
+-  rhassert_ptr_equals(entry->s.prev, 0);
+-
+-  /* check that it has been split correctly. */
+-  nentry = entry->s.next;
+-  rhassert_ptr_equals(nentry, HEAP_MEM_START + 80 + sizeof(metadata_t));
+-  rhassert_int_equals(nentry->s.in_use, 0);
+-  rhassert_ptr_equals(nentry->s.prev, entry);
+-  rhassert_ptr_equals(nentry->s.next, 0);
+-  rhassert_int_equals(nentry->s.size,
+-                      MAX_HEAP_SIZE - 2 * sizeof(metadata_t) - 80);
+-
+-  /* allocate more bytes */
+-  ptr = rhmalloc(160);
+-  rhassert_ptr_equals(ptr, HEAP_MEM_START + 80 + 2*sizeof(metadata_t));
+-
+-  /* Check the newly split node if correct. */
+-  nnentry = freelist_head()->s.next;
+-  rhassert_ptr_equals(nnentry, nentry);
+-  rhassert_int_equals(nnentry->s.size, 160);
+-  rhassert_int_equals(nnentry->s.in_use, 1);
+-  rhassert_ptr_equals(nnentry->s.prev, entry);
+-
+-  entry = nnentry->s.next;
+-  rhassert_ptr_equals(entry, HEAP_MEM_START + 2*sizeof(metadata_t) + 240);
+-  rhassert_int_equals(entry->s.size,
+-                      MAX_HEAP_SIZE - 3 * sizeof(metadata_t) - 240);
+-  rhassert_ptr_equals(entry->s.prev, nnentry);
+-  rhassert_ptr_equals(entry->s.next, 0);
+-}
+-
+-/**
+- * Test basic free strategies.
+- */
+-static void test_basic_free(void)
+-{
+-  void *block1ptr;
+-  metadata_t *entry1, *block2_metadata, *reused_block, *little_remainder,
+-      *big_block_metadata;
+-
+-  /* reset if needed */
+-  reset_if_needed();
+-
+-  /* Allocate some memory */
+-  block1ptr = rhmalloc(80);
+-  rhmalloc(160);
+-
+-  /* free the first block */
+-  rhfree(block1ptr);
+-
+-  entry1 = freelist_head();
+-  rhassert_ptr_equals(entry1, HEAP_MEM_START);
+-  rhassert_int_equals(entry1->s.size, 80);
+-  rhassert_int_equals(entry1->s.in_use, 0);
+-  rhassert_ptr_equals(entry1->s.prev, 0);
+-
+-  block2_metadata = entry1->s.next;
+-  rhassert_ptr_equals(block2_metadata,
+-                      HEAP_MEM_START + sizeof(metadata_t) + 80);
+-
+-  /* Now allocate a block we can fit in the space we just freed. Given our
+-   * design, this block will go into the first free block which is the one that
+-   * we just freed. That is because we are keeping out block doubly linked list
+-   * in order by address. */
+-  reused_block = rhmalloc(40);
+-  rhassert_ptr_equals(reused_block, HEAP_MEM_START + sizeof(metadata_t));
+-  rhassert_ptr_equals(entry1, HEAP_MEM_START);
+-
+-  /* check that entry1 has been updated! */
+-  rhassert_int_equals(entry1->s.size, 40);
+-  rhassert_int_equals(entry1->s.in_use, 1);
+-  rhassert_ptr_equals(entry1->s.prev, 0);
+-
+-  /* There should be a small free block after the newly allocated one and before
+-   * the one we had previosly allocated. */
+-  little_remainder = entry1->s.next;
+-  rhassert_ptr_equals(little_remainder->s.prev, entry1);
+-  rhassert_ptr_equals(little_remainder->s.next, block2_metadata);
+-
+-  rhassert_int_equals(little_remainder->s.size, 40 - sizeof(metadata_t));
+-  rhassert_int_equals(little_remainder->s.in_use, 0);
+-
+-  rhassert_ptr_equals(block2_metadata->s.prev, little_remainder);
+-
+-  /* make a new block that cannot fit into the small amount of remainder memory.
+-   */
+-  rhmalloc(88);
+-  rhassert_int_equals(little_remainder->s.in_use, 0);
+-
+-  /* since it can't fit there, it will go after the last block. */
+-  big_block_metadata = block2_metadata->s.next;
+-  rhassert_int_equals(big_block_metadata->s.in_use, 1);
+-  rhassert_int_equals(big_block_metadata->s.size, 88);
+-}
+-
+-static void test_coalesce_basic1(void)
+-{
+-  void *blk1, *blk2;
+-  metadata_t *entry1, *entry2;
+-
+-  reset_if_needed();
+-
+-  blk1 = rhmalloc(80);
+-  blk2 = rhmalloc(88);
+-  rhmalloc(96);
+-
+-  rhfree(blk2);
+-
+-  /* now when we free blk1, blk2 should already have been free and thus should be
+-   * coalesced with its next block. */
+-  rhfree(blk1);
+-
+-  entry1 = freelist_head();
+-  rhassert_ptr_equals(entry1, HEAP_MEM_START);
+-  rhassert_int_equals(entry1->s.size, 80 + 88 + sizeof(metadata_t));
+-  rhassert_int_equals(entry1->s.in_use, 0);
+-
+-  entry2 = freelist_head()->s.next;
+-  rhassert_int_equals(entry2->s.size, 96);
+-  rhassert_int_equals(entry2->s.in_use, 1);
+-  rhassert_ptr_equals(entry2->s.prev, entry1);
+-}
+-
+-static void test_coalesce_basic2(void)
+-{
+-  void *blk1, *blk2;
+-  metadata_t *entry1, *entry2;
+-
+-  reset_if_needed();
+-
+-  blk1 = rhmalloc(80);
+-  blk2 = rhmalloc(88);
+-  rhmalloc(96);
+-
+-  /* exactly the same as coalesce basic 1, but now the order of the frees is
+-   * reversed. When blk2 is freed, blk1 is already freed and blk2 must coleasce
+-   * into blk1. */
+-  rhfree(blk1);
+-  rhfree(blk2);
+-
+-  entry1 = freelist_head();
+-  rhassert_ptr_equals(entry1, HEAP_MEM_START);
+-  rhassert_int_equals(entry1->s.size, 80 + 88 + sizeof(metadata_t));
+-  rhassert_int_equals(entry1->s.in_use, 0);
+-
+-  entry2 = freelist_head()->s.next;
+-  rhassert_int_equals(entry2->s.size, 96);
+-  rhassert_int_equals(entry2->s.in_use, 1);
+-  rhassert_ptr_equals(entry2->s.prev, entry1);
+-}
+-
+-static void test_coalesce3(void)
+-{
+-  void *blk1, *blk2, *blk3, *blk4;
+-  metadata_t *entry1, *entry2;
+-
+-  reset_if_needed();
+-
+-  blk1 = rhmalloc(80);
+-  blk2 = rhmalloc(88);
+-  blk3 = rhmalloc(96);
+-  blk4 = rhmalloc(104);
+-
+-  /* free 1 and 3, then 2 so two blocks need to be coalesced in a single free.
+-   */
+-  rhfree(blk1);
+-  rhfree(blk3);
+-  rhfree(blk2);
+-
+-  entry1 = freelist_head();
+-  rhassert_ptr_equals(entry1, HEAP_MEM_START);
+-  rhassert_int_equals(entry1->s.size, 80 + 88 + 96 + 2*sizeof(metadata_t));
+-  rhassert_int_equals(entry1->s.in_use, 0);
+-
+-  entry2 = freelist_head()->s.next;
+-  rhassert_int_equals(entry2->s.size, 104);
+-  rhassert_int_equals(entry2->s.in_use, 1);
+-  rhassert_ptr_equals(entry2->s.prev, entry1);
+-
+-  /* now delete block 4, which should return us to a completely free memory. */
+-  rhfree(blk4);
+-  rhassert_ptr_equals(entry1, HEAP_MEM_START);
+-  rhassert_int_equals(entry1->s.size, MAX_HEAP_SIZE - sizeof(metadata_t));
+-  rhassert_int_equals(entry1->s.in_use, 0);
+-  rhassert_ptr_equals(entry1->s.next, 0);
+-  rhassert_ptr_equals(entry1->s.prev, 0);
+-}
+-
+-static void test_force_alignment(void)
+-{
+-  void *blk1, *blk2;
+-  metadata_t *entry1, *entry2;
+-
+-  reset_if_needed();
+-
+-  blk1 = rhmalloc(1);
+-  blk2 = rhmalloc(ALIGNMENT*3 + 1);
+-  entry1 = freelist_head();
+-  rhassert_ptr_equals(entry1, HEAP_MEM_START);
+-
+-  /* It doesn't make sense to really allocate a single byte, we have to keep some
+-   * alignment restrictions. So when we have to force the actual memory region
+-   * to be different than the requested size, we should store the actual size
+-   * rather than the requested size. This is because the true size isn't
+-   * something the user will have access to. */
+-  rhassert_int_equals(entry1->s.size, ALIGNMENT);
+-
+-  entry2 = entry1->s.next;
+-  rhassert_int_equals(entry2->s.size, 4*ALIGNMENT);
+-
+-  rhassert_ptr_equals(entry2, HEAP_MEM_START + sizeof(metadata_t) + ALIGNMENT);
+-
+-  rhassert_ptr_equals(blk1, HEAP_MEM_START + sizeof(metadata_t));
+-  rhassert_ptr_equals(blk2,
+-                      HEAP_MEM_START + sizeof(metadata_t) * 2 + ALIGNMENT);
+-}
+-
+-static void test_too_small_blocks(void)
+-{
+-  void *blk1, *blk1_v2;
+-  metadata_t *entry1, *entry2, *split;
+-
+-  reset_if_needed();
+-
+-  blk1 = rhmalloc(ALIGNMENT);
+-  rhmalloc(ALIGNMENT);
+-
+-  rhfree(blk1);
+-  blk1_v2 = rhmalloc(ALIGNMENT + 1);
+-  /* This might seem obvious, but realize that it might seem like there is
+-   * enough space if you don't consider that the metadata needs to be stored as
+-   * well. */
+-  rhassert(blk1 != blk1_v2);
+-
+-  reset_if_needed();
+-  
+-  blk1 = rhmalloc(ALIGNMENT*10);
+-  rhmalloc(ALIGNMENT);
+-  entry2 = freelist_head()->s.next;
+-  rhfree(blk1);
+-  blk1_v2 = rhmalloc(ALIGNMENT*9);
+-  entry1 = freelist_head();
+-
+-  rhassert(blk1 == blk1_v2);
+-  /* If we allow the block to be split into 2, we'll produce a remainder block
+-   * with a size too small to actually hold the metadata. This can produce
+-   * memory corruption, but even if it doesn't, it's silly to allow the
+-   * existence of an entry in our freelist that can't actually store data
+-   * because it doesn't really have any free space in it. The solution is simple
+-   * - if the "remainder" block is too small to be useful, we just allocate the
+-   * entire block for the request (not splitting) even if that's a little more
+-   * memory than the user requested. */
+-  rhassert_int_equals(entry1->s.size, ALIGNMENT*10);
+-  rhassert_ptr_equals(entry1->s.next, entry2);
+-
+-  reset_if_needed();
+-
+-  blk1 = rhmalloc(ALIGNMENT*10 + sizeof(metadata_t));
+-  rhmalloc(ALIGNMENT);
+-  entry2 = freelist_head()->s.next;
+-  rhfree(blk1);
+-  blk1_v2 = rhmalloc(ALIGNMENT * 10);
+-  entry1 = freelist_head();
+-  rhassert(blk1 == blk1_v2);
+-
+-  /* This is the same as the previous case, only difference is that it is almost
+-   * big enough but not quite. It is big enough to store the metadata, but only
+-   * barely.  So the actualy data storage size would still be 0. As before, we
+-   * should just refuse to split the block. */
+-  rhassert_int_equals(entry1->s.size, ALIGNMENT*10 + sizeof(metadata_t));
+-  rhassert_ptr_equals(entry1->s.next, entry2);
+-
+-  reset_if_needed();
+-
+-  blk1 = rhmalloc(ALIGNMENT*10 + sizeof(metadata_t));
+-  rhmalloc(ALIGNMENT);
+-  entry2 = freelist_head()->s.next;
+-  rhfree(blk1);
+-  blk1_v2 = rhmalloc(ALIGNMENT*9);
+-  entry1 = freelist_head();
+-
+-  rhassert(blk1 == blk1_v2);
+-
+-  /* now the block is just big enough that it is allowed to be split into 2
+-   * blocks.*/
+-  rhassert_int_equals(entry1->s.size, ALIGNMENT*9);
+-  split = entry1->s.next;
+-  rhassert_int_equals(split->s.size, ALIGNMENT);
+-  rhassert_int_equals(split->s.in_use, 0);
+-  rhassert_ptr_equals(split->s.next, entry2);
+-}
+-
+-static void test_gracefully_run_out_of_memory(void)
+-{
+-  reset_if_needed();
+-
+-  while(1) {
+-    if(rhmalloc(800) == 0) break;
+-  }
+-
+-  /* Once you are out of memory, asking again shouldn't change the situation. */
+-  rhassert(rhmalloc(800) == 0);
+-}
+-
+-#define STEP 8
+-
+-/* permutation of length step [0, STEP-1] */
+-static int step_perm[STEP] = { 3, 4, 1, 2, 0, 5, 6 };
+-
+-static void test_stress_big_heap_chunks(void)
+-{
+-  int size, i;
+-  void *ptr[STEP];
+-
+-  reset_if_needed();
+-
+-  size = MAX_HEAP_SIZE / STEP;
+-
+-  /* allocate size bytes (STEP-1) times */
+-  for(i = 0; i < STEP-1; i++) {
+-    ptr[i] = rhmalloc(size);
+-    rhassert(ptr[i] != 0);
+-  }
+-
+-  /* try to allocate size bytes for last step (it should fail due to rounding
+-   * and metadata)*/
+-  ptr[STEP-1] = rhmalloc(size);
+-  rhassert(ptr[STEP-1] == 0);
+-
+-  /* free allocated memory by permutation */
+-  for(i = 0; i < STEP; i++) {
+-    rhfree(ptr[step_perm[i]]);
+-  }
+-
+-  /* finally try to allocate big chunk of memory to check functionality of free.
+-   */
+-  size = MAX_HEAP_SIZE*0.9;
+-  ptr[0] = rhmalloc(size);
+-  rhassert(ptr[0] != 0);
+-}
+-
+-#define BUFLEN 100
+-#define LOOPCNT 100
+-#define ALLOC_SIZE MAX_HEAP_SIZE/100
+-#define ALLOC_CONST 500 
+-
+-static void test_stress_overlapping(void)
+-{
+-  int size, itr;
+-  void *ptr[BUFLEN];
+-  int i, j;
+-  int randvar;
+-
+-  /* store pointers to allocated memory segments. */
+-  long int global[LOOPCNT][2];
+-
+-  reset_if_needed();
+-
+-  for(j = 0; j < LOOPCNT; j++) {
+-    global[j][0] = -1;
+-    global[j][1] = -1;
+-  }
+-  for(i = 0; i < BUFLEN; i++) {
+-    ptr[i] = 0;
+-  }
+-
+-  for(i = 0; i < LOOPCNT; i++) {
+-    /* randomly choose an index for alloc/free */
+-    itr = rand() % BUFLEN;
+-
+-    /* flip a coin to decide alloc/free */
+-    randvar = rand() % (2*ALLOC_CONST);
+-
+-    if(randvar < ALLOC_CONST && ptr[itr] == 0) {
+-      size = (rand() % ALLOC_SIZE) + 1;
+-      ptr[itr] = rhmalloc(size);
+-
+-      /* it is possible the allocation could fail because we've allocated the
+-       * max already. */
+-      if(ptr[itr] == 0) continue;
+-
+-      /* If we did allocate, check every other existing allocation to ensure the
+-       * region we were given does not overlap with other regions. */
+-      for(j = 0; j < i; j++) {
+-        if(global[j][0] == -1) continue;
+-
+-        if((((long int)ptr[itr] >= global[j][0]) &&
+-            ((long int)ptr[itr] <= global[j][1])) ||
+-           (((long int)ptr[itr] + size >= global[j][0]) &&
+-            ((long int)ptr[itr] + size <= global[j][1]))) {
+-          printf("allocation regions overlap");
+-          rhassert(0);
+-        }
+-        global[i][0] = (long int)ptr[itr];
+-        global[i][1] = (long int)ptr[itr] + size;
+-      }
+-    } else if(randvar >= ALLOC_CONST && ptr[itr] != 0) {
+-      /* free memory */
+-      for(j = 0; j < i; j++) {
+-        if(global[j][0] == (long int)ptr[itr]) {
+-          global[j][0] = -1;
+-          global[j][1] = -1;
+-        }
+-      }
+-      rhfree(ptr[itr]);
+-      ptr[itr] = 0;
+-    }
+-  }
+-}
+-
+-int main(int argc, char **argv)
+-{
+-  int opt;
+-
+-  if(argc < 2) {
+-    /* Run all tests */
+-    test_basic_alloc();         // 1
+-    test_basic_free();          // 2
+-    test_coalesce_basic1();     // 3
+-    test_coalesce_basic2();     // 4
+-    test_coalesce3();           // 5 
+-    test_force_alignment();     // 6
+-    test_too_small_blocks();    // 7
+-    test_gracefully_run_out_of_memory();    // 8
+-    test_stress_big_heap_chunks();          // 9
+-    test_stress_overlapping();              // 10
+-    exit(0);
+-  }
+-
+-  opt = atoi(argv[1]);
+-  switch(opt) {
+-    case 1:
+-    test_basic_alloc();
+-    break;
+-    case 2:
+-    test_basic_free();
+-    break;
+-    case 3:
+-    test_coalesce_basic1();
+-    break;
+-    case 4:
+-    test_coalesce_basic2();
+-    break;
+-    case 5:
+-    test_coalesce3();
+-    break;
+-    case 6:
+-    test_force_alignment();
+-    break;
+-    case 7:
+-    test_too_small_blocks();
+-    break;
+-    case 8:
+-    test_gracefully_run_out_of_memory();
+-    break;
+-    case 9:
+-    test_stress_big_heap_chunks();
+-    break;
+-    case 10:
+-    test_stress_overlapping();
+-    break;
+-    default:
+-    printf("Unknown option %s\n", argv[1]);
+-    exit(1);
+-    break;
+-  }
+-
+-  exit(0);
+-}
+-
+-static int do_rand(unsigned long *ctx)
+-{
+-  /*
+-   * Compute x = (7^5 * x) mod (2^31 - 1)
+-   * without overflowing 31 bits:
+-   *      (2^31 - 1) = 127773 * (7^5) + 2836
+-   * From "Random number generators: good ones are hard to find",
+-   * Park and Miller, Communications of the ACM, vol. 31, no. 10,
+-   * October 1988, p. 1195.
+-   */
+-  long hi, lo, x;
+-
+-  /* Transform to [1, 0x7ffffffe] range. */
+-  x = (*ctx % 0x7ffffffe) + 1;
+-  hi = x / 127773;
+-  lo = x % 127773;
+-  x = 16807 * lo - 2836 * hi;
+-  if(x < 0) x += 0x7fffffff;
+-  /* Transform to [0, 0x7ffffffd] range. */
+-  x--;
+-  *ctx = x;
+-  return (x);
+-}
+-
+-int rand(void)
+-{
+-  return do_rand(&rand_next);
+-}
++/****************************************************************************
++ * Copyright © 2022 Rose-Hulman Institute of Technology
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a copy
++ * of this software and associated documentation files (the “Software”), to deal
++ * in the Software without restriction, including without limitation the rights
++ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++ * copies of the Software, and to permit persons to whom the Software is
++ * furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice shall be included in
++ * all copies or substantial portions of the Software.
++ *
++ * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
++ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
++ * IN THE SOFTWARE.
++ ****************************************************************************/
++#include "kernel/types.h"
++#include "user/user.h"
++#include "user/rhtest.h"
++#include "user/rhmalloc.h"
++
++#define HEAP_MEM_START heap_start()
++
++/* Simple random number generator ported from grind.c */
++unsigned long rand_next = 1;
++int rand(void);
++
++/**
++ * This is a bit tricky. We only want to free all in case the freelist head is
++ * occupied, otherwise, very bad things can happen.
++ */
++static void reset_if_needed(void)
++{
++  if(freelist_head()) rhfree_all();
++}
++
++/**
++ * Test basic allocation strategies.
++ *
++ * @warning This routine does not free the memory it allocates, so make sure to
++ * reset after calling it.
++ */
++static void test_basic_alloc(void)
++{
++  void *ptr;
++  metadata_t *entry, *nentry, *nnentry;
++
++  reset_if_needed();
++
++  /* Try to allocate 80 bytes */
++  ptr = rhmalloc(80);
++  rhassert_ptr_equals(ptr, HEAP_MEM_START + sizeof(metadata_t));
++  
++  /* check the created entry in the freelist */
++  entry = freelist_head();
++  rhassert_ptr_equals(entry, HEAP_MEM_START);
++  rhassert_int_equals(entry->s.size, 80);
++  rhassert_int_equals(entry->s.in_use, 1);
++  rhassert_ptr_equals(entry->s.prev, 0);
++
++  /* check that it has been split correctly. */
++  nentry = entry->s.next;
++  rhassert_ptr_equals(nentry, HEAP_MEM_START + 80 + sizeof(metadata_t));
++  rhassert_int_equals(nentry->s.in_use, 0);
++  rhassert_ptr_equals(nentry->s.prev, entry);
++  rhassert_ptr_equals(nentry->s.next, 0);
++  rhassert_int_equals(nentry->s.size,
++                      MAX_HEAP_SIZE - 2 * sizeof(metadata_t) - 80);
++
++  /* allocate more bytes */
++  ptr = rhmalloc(160);
++  rhassert_ptr_equals(ptr, HEAP_MEM_START + 80 + 2*sizeof(metadata_t));
++
++  /* Check the newly split node if correct. */
++  nnentry = freelist_head()->s.next;
++  rhassert_ptr_equals(nnentry, nentry);
++  rhassert_int_equals(nnentry->s.size, 160);
++  rhassert_int_equals(nnentry->s.in_use, 1);
++  rhassert_ptr_equals(nnentry->s.prev, entry);
++
++  entry = nnentry->s.next;
++  rhassert_ptr_equals(entry, HEAP_MEM_START + 2*sizeof(metadata_t) + 240);
++  rhassert_int_equals(entry->s.size,
++                      MAX_HEAP_SIZE - 3 * sizeof(metadata_t) - 240);
++  rhassert_ptr_equals(entry->s.prev, nnentry);
++  rhassert_ptr_equals(entry->s.next, 0);
++}
++
++/**
++ * Test basic free strategies.
++ */
++static void test_basic_free(void)
++{
++  void *block1ptr;
++  metadata_t *entry1, *block2_metadata, *reused_block, *little_remainder,
++      *big_block_metadata;
++
++  /* reset if needed */
++  reset_if_needed();
++
++  /* Allocate some memory */
++  block1ptr = rhmalloc(80);
++  rhmalloc(160);
++
++  /* free the first block */
++  rhfree(block1ptr);
++
++  entry1 = freelist_head();
++  rhassert_ptr_equals(entry1, HEAP_MEM_START);
++  rhassert_int_equals(entry1->s.size, 80);
++  rhassert_int_equals(entry1->s.in_use, 0);
++  rhassert_ptr_equals(entry1->s.prev, 0);
++
++  block2_metadata = entry1->s.next;
++  rhassert_ptr_equals(block2_metadata,
++                      HEAP_MEM_START + sizeof(metadata_t) + 80);
++
++  /* Now allocate a block we can fit in the space we just freed. Given our
++   * design, this block will go into the first free block which is the one that
++   * we just freed. That is because we are keeping out block doubly linked list
++   * in order by address. */
++  reused_block = rhmalloc(40);
++  rhassert_ptr_equals(reused_block, HEAP_MEM_START + sizeof(metadata_t));
++  rhassert_ptr_equals(entry1, HEAP_MEM_START);
++
++  /* check that entry1 has been updated! */
++  rhassert_int_equals(entry1->s.size, 40);
++  rhassert_int_equals(entry1->s.in_use, 1);
++  rhassert_ptr_equals(entry1->s.prev, 0);
++
++  /* There should be a small free block after the newly allocated one and before
++   * the one we had previosly allocated. */
++  little_remainder = entry1->s.next;
++  rhassert_ptr_equals(little_remainder->s.prev, entry1);
++  rhassert_ptr_equals(little_remainder->s.next, block2_metadata);
++
++  rhassert_int_equals(little_remainder->s.size, 40 - sizeof(metadata_t));
++  rhassert_int_equals(little_remainder->s.in_use, 0);
++
++  rhassert_ptr_equals(block2_metadata->s.prev, little_remainder);
++
++  /* make a new block that cannot fit into the small amount of remainder memory.
++   */
++  rhmalloc(88);
++  rhassert_int_equals(little_remainder->s.in_use, 0);
++
++  /* since it can't fit there, it will go after the last block. */
++  big_block_metadata = block2_metadata->s.next;
++  rhassert_int_equals(big_block_metadata->s.in_use, 1);
++  rhassert_int_equals(big_block_metadata->s.size, 88);
++}
++
++static void test_coalesce_basic1(void)
++{
++  void *blk1, *blk2;
++  metadata_t *entry1, *entry2;
++
++  reset_if_needed();
++
++  blk1 = rhmalloc(80);
++  blk2 = rhmalloc(88);
++  rhmalloc(96);
++
++  rhfree(blk2);
++
++  /* now when we free blk1, blk2 should already have been free and thus should be
++   * coalesced with its next block. */
++  rhfree(blk1);
++
++  entry1 = freelist_head();
++  rhassert_ptr_equals(entry1, HEAP_MEM_START);
++  rhassert_int_equals(entry1->s.size, 80 + 88 + sizeof(metadata_t));
++  rhassert_int_equals(entry1->s.in_use, 0);
++
++  entry2 = freelist_head()->s.next;
++  rhassert_int_equals(entry2->s.size, 96);
++  rhassert_int_equals(entry2->s.in_use, 1);
++  rhassert_ptr_equals(entry2->s.prev, entry1);
++}
++
++static void test_coalesce_basic2(void)
++{
++  void *blk1, *blk2;
++  metadata_t *entry1, *entry2;
++
++  reset_if_needed();
++
++  blk1 = rhmalloc(80);
++  blk2 = rhmalloc(88);
++  rhmalloc(96);
++
++  /* exactly the same as coalesce basic 1, but now the order of the frees is
++   * reversed. When blk2 is freed, blk1 is already freed and blk2 must coleasce
++   * into blk1. */
++  rhfree(blk1);
++  rhfree(blk2);
++
++  entry1 = freelist_head();
++  rhassert_ptr_equals(entry1, HEAP_MEM_START);
++  rhassert_int_equals(entry1->s.size, 80 + 88 + sizeof(metadata_t));
++  rhassert_int_equals(entry1->s.in_use, 0);
++
++  entry2 = freelist_head()->s.next;
++  rhassert_int_equals(entry2->s.size, 96);
++  rhassert_int_equals(entry2->s.in_use, 1);
++  rhassert_ptr_equals(entry2->s.prev, entry1);
++}
++
++static void test_coalesce3(void)
++{
++  void *blk1, *blk2, *blk3, *blk4;
++  metadata_t *entry1, *entry2;
++
++  reset_if_needed();
++
++  blk1 = rhmalloc(80);
++  blk2 = rhmalloc(88);
++  blk3 = rhmalloc(96);
++  blk4 = rhmalloc(104);
++
++  /* free 1 and 3, then 2 so two blocks need to be coalesced in a single free.
++   */
++  rhfree(blk1);
++  rhfree(blk3);
++  rhfree(blk2);
++
++  entry1 = freelist_head();
++  rhassert_ptr_equals(entry1, HEAP_MEM_START);
++  rhassert_int_equals(entry1->s.size, 80 + 88 + 96 + 2*sizeof(metadata_t));
++  rhassert_int_equals(entry1->s.in_use, 0);
++
++  entry2 = freelist_head()->s.next;
++  rhassert_int_equals(entry2->s.size, 104);
++  rhassert_int_equals(entry2->s.in_use, 1);
++  rhassert_ptr_equals(entry2->s.prev, entry1);
++
++  /* now delete block 4, which should return us to a completely free memory. */
++  rhfree(blk4);
++  rhassert_ptr_equals(entry1, HEAP_MEM_START);
++  rhassert_int_equals(entry1->s.size, MAX_HEAP_SIZE - sizeof(metadata_t));
++  rhassert_int_equals(entry1->s.in_use, 0);
++  rhassert_ptr_equals(entry1->s.next, 0);
++  rhassert_ptr_equals(entry1->s.prev, 0);
++}
++
++static void test_force_alignment(void)
++{
++  void *blk1, *blk2;
++  metadata_t *entry1, *entry2;
++
++  reset_if_needed();
++
++  blk1 = rhmalloc(1);
++  blk2 = rhmalloc(ALIGNMENT*3 + 1);
++  entry1 = freelist_head();
++  rhassert_ptr_equals(entry1, HEAP_MEM_START);
++
++  /* It doesn't make sense to really allocate a single byte, we have to keep some
++   * alignment restrictions. So when we have to force the actual memory region
++   * to be different than the requested size, we should store the actual size
++   * rather than the requested size. This is because the true size isn't
++   * something the user will have access to. */
++  rhassert_int_equals(entry1->s.size, ALIGNMENT);
++
++  entry2 = entry1->s.next;
++  rhassert_int_equals(entry2->s.size, 4*ALIGNMENT);
++
++  rhassert_ptr_equals(entry2, HEAP_MEM_START + sizeof(metadata_t) + ALIGNMENT);
++
++  rhassert_ptr_equals(blk1, HEAP_MEM_START + sizeof(metadata_t));
++  rhassert_ptr_equals(blk2,
++                      HEAP_MEM_START + sizeof(metadata_t) * 2 + ALIGNMENT);
++}
++
++static void test_too_small_blocks(void)
++{
++  void *blk1, *blk1_v2;
++  metadata_t *entry1, *entry2, *split;
++
++  reset_if_needed();
++
++  blk1 = rhmalloc(ALIGNMENT);
++  rhmalloc(ALIGNMENT);
++
++  rhfree(blk1);
++  blk1_v2 = rhmalloc(ALIGNMENT + 1);
++  /* This might seem obvious, but realize that it might seem like there is
++   * enough space if you don't consider that the metadata needs to be stored as
++   * well. */
++  rhassert(blk1 != blk1_v2);
++
++  reset_if_needed();
++  
++  blk1 = rhmalloc(ALIGNMENT*10);
++  rhmalloc(ALIGNMENT);
++  entry2 = freelist_head()->s.next;
++  rhfree(blk1);
++  blk1_v2 = rhmalloc(ALIGNMENT*9);
++  entry1 = freelist_head();
++
++  rhassert(blk1 == blk1_v2);
++  /* If we allow the block to be split into 2, we'll produce a remainder block
++   * with a size too small to actually hold the metadata. This can produce
++   * memory corruption, but even if it doesn't, it's silly to allow the
++   * existence of an entry in our freelist that can't actually store data
++   * because it doesn't really have any free space in it. The solution is simple
++   * - if the "remainder" block is too small to be useful, we just allocate the
++   * entire block for the request (not splitting) even if that's a little more
++   * memory than the user requested. */
++  rhassert_int_equals(entry1->s.size, ALIGNMENT*10);
++  rhassert_ptr_equals(entry1->s.next, entry2);
++
++  reset_if_needed();
++
++  blk1 = rhmalloc(ALIGNMENT*10 + sizeof(metadata_t));
++  rhmalloc(ALIGNMENT);
++  entry2 = freelist_head()->s.next;
++  rhfree(blk1);
++  blk1_v2 = rhmalloc(ALIGNMENT * 10);
++  entry1 = freelist_head();
++  rhassert(blk1 == blk1_v2);
++
++  /* This is the same as the previous case, only difference is that it is almost
++   * big enough but not quite. It is big enough to store the metadata, but only
++   * barely.  So the actualy data storage size would still be 0. As before, we
++   * should just refuse to split the block. */
++  rhassert_int_equals(entry1->s.size, ALIGNMENT*10 + sizeof(metadata_t));
++  rhassert_ptr_equals(entry1->s.next, entry2);
++
++  reset_if_needed();
++
++  blk1 = rhmalloc(ALIGNMENT*10 + sizeof(metadata_t));
++  rhmalloc(ALIGNMENT);
++  entry2 = freelist_head()->s.next;
++  rhfree(blk1);
++  blk1_v2 = rhmalloc(ALIGNMENT*9);
++  entry1 = freelist_head();
++
++  rhassert(blk1 == blk1_v2);
++
++  /* now the block is just big enough that it is allowed to be split into 2
++   * blocks.*/
++  rhassert_int_equals(entry1->s.size, ALIGNMENT*9);
++  split = entry1->s.next;
++  rhassert_int_equals(split->s.size, ALIGNMENT);
++  rhassert_int_equals(split->s.in_use, 0);
++  rhassert_ptr_equals(split->s.next, entry2);
++}
++
++static void test_gracefully_run_out_of_memory(void)
++{
++  reset_if_needed();
++
++  while(1) {
++    if(rhmalloc(800) == 0) break;
++  }
++
++  /* Once you are out of memory, asking again shouldn't change the situation. */
++  rhassert(rhmalloc(800) == 0);
++}
++
++#define STEP 8
++
++/* permutation of length step [0, STEP-1] */
++static int step_perm[STEP] = { 3, 4, 1, 2, 0, 5, 6 };
++
++static void test_stress_big_heap_chunks(void)
++{
++  int size, i;
++  void *ptr[STEP];
++
++  reset_if_needed();
++
++  size = MAX_HEAP_SIZE / STEP;
++
++  /* allocate size bytes (STEP-1) times */
++  for(i = 0; i < STEP-1; i++) {
++    ptr[i] = rhmalloc(size);
++    rhassert(ptr[i] != 0);
++  }
++
++  /* try to allocate size bytes for last step (it should fail due to rounding
++   * and metadata)*/
++  ptr[STEP-1] = rhmalloc(size);
++  rhassert(ptr[STEP-1] == 0);
++
++  /* free allocated memory by permutation */
++  for(i = 0; i < STEP; i++) {
++    rhfree(ptr[step_perm[i]]);
++  }
++
++  /* finally try to allocate big chunk of memory to check functionality of free.
++   */
++  size = MAX_HEAP_SIZE*0.9;
++  ptr[0] = rhmalloc(size);
++  rhassert(ptr[0] != 0);
++}
++
++#define BUFLEN 100
++#define LOOPCNT 100
++#define ALLOC_SIZE MAX_HEAP_SIZE/100
++#define ALLOC_CONST 500 
++
++static void test_stress_overlapping(void)
++{
++  int size, itr;
++  void *ptr[BUFLEN];
++  int i, j;
++  int randvar;
++
++  /* store pointers to allocated memory segments. */
++  long int global[LOOPCNT][2];
++
++  reset_if_needed();
++
++  for(j = 0; j < LOOPCNT; j++) {
++    global[j][0] = -1;
++    global[j][1] = -1;
++  }
++  for(i = 0; i < BUFLEN; i++) {
++    ptr[i] = 0;
++  }
++
++  for(i = 0; i < LOOPCNT; i++) {
++    /* randomly choose an index for alloc/free */
++    itr = rand() % BUFLEN;
++
++    /* flip a coin to decide alloc/free */
++    randvar = rand() % (2*ALLOC_CONST);
++
++    if(randvar < ALLOC_CONST && ptr[itr] == 0) {
++      size = (rand() % ALLOC_SIZE) + 1;
++      ptr[itr] = rhmalloc(size);
++
++      /* it is possible the allocation could fail because we've allocated the
++       * max already. */
++      if(ptr[itr] == 0) continue;
++
++      /* If we did allocate, check every other existing allocation to ensure the
++       * region we were given does not overlap with other regions. */
++      for(j = 0; j < i; j++) {
++        if(global[j][0] == -1) continue;
++
++        if((((long int)ptr[itr] >= global[j][0]) &&
++            ((long int)ptr[itr] <= global[j][1])) ||
++           (((long int)ptr[itr] + size >= global[j][0]) &&
++            ((long int)ptr[itr] + size <= global[j][1]))) {
++          printf("allocation regions overlap");
++          rhassert(0);
++        }
++        global[i][0] = (long int)ptr[itr];
++        global[i][1] = (long int)ptr[itr] + size;
++      }
++    } else if(randvar >= ALLOC_CONST && ptr[itr] != 0) {
++      /* free memory */
++      for(j = 0; j < i; j++) {
++        if(global[j][0] == (long int)ptr[itr]) {
++          global[j][0] = -1;
++          global[j][1] = -1;
++        }
++      }
++      rhfree(ptr[itr]);
++      ptr[itr] = 0;
++    }
++  }
++}
++
++int main(int argc, char **argv)
++{
++  int opt;
++
++  if(argc < 2) {
++    /* Run all tests */
++    test_basic_alloc();         // 1
++    test_basic_free();          // 2
++    test_coalesce_basic1();     // 3
++    test_coalesce_basic2();     // 4
++    test_coalesce3();           // 5 
++    test_force_alignment();     // 6
++    test_too_small_blocks();    // 7
++    test_gracefully_run_out_of_memory();    // 8
++    test_stress_big_heap_chunks();          // 9
++    test_stress_overlapping();              // 10
++    exit(0);
++  }
++
++  opt = atoi(argv[1]);
++  switch(opt) {
++    case 1:
++    test_basic_alloc();
++    break;
++    case 2:
++    test_basic_free();
++    break;
++    case 3:
++    test_coalesce_basic1();
++    break;
++    case 4:
++    test_coalesce_basic2();
++    break;
++    case 5:
++    test_coalesce3();
++    break;
++    case 6:
++    test_force_alignment();
++    break;
++    case 7:
++    test_too_small_blocks();
++    break;
++    case 8:
++    test_gracefully_run_out_of_memory();
++    break;
++    case 9:
++    test_stress_big_heap_chunks();
++    break;
++    case 10:
++    test_stress_overlapping();
++    break;
++    default:
++    printf("Unknown option %s\n", argv[1]);
++    exit(1);
++    break;
++  }
++
++  exit(0);
++}
++
++static int do_rand(unsigned long *ctx)
++{
++  /*
++   * Compute x = (7^5 * x) mod (2^31 - 1)
++   * without overflowing 31 bits:
++   *      (2^31 - 1) = 127773 * (7^5) + 2836
++   * From "Random number generators: good ones are hard to find",
++   * Park and Miller, Communications of the ACM, vol. 31, no. 10,
++   * October 1988, p. 1195.
++   */
++  long hi, lo, x;
++
++  /* Transform to [1, 0x7ffffffe] range. */
++  x = (*ctx % 0x7ffffffe) + 1;
++  hi = x / 127773;
++  lo = x % 127773;
++  x = 16807 * lo - 2836 * hi;
++  if(x < 0) x += 0x7fffffff;
++  /* Transform to [0, 0x7ffffffd] range. */
++  x--;
++  *ctx = x;
++  return (x);
++}
++
++int rand(void)
++{
++  return do_rand(&rand_next);
++}
+diff --git a/user/rhmalloc.c b/user/rhmalloc.c
+index 930680d..0401af2 100644
+--- a/user/rhmalloc.c
++++ b/user/rhmalloc.c
+@@ -1,125 +1,201 @@
+-/****************************************************************************
+- * Copyright © 2022 Rose-Hulman Institute of Technology
+- *
+- * Permission is hereby granted, free of charge, to any person obtaining a copy
+- * of this software and associated documentation files (the “Software”), to deal
+- * in the Software without restriction, including without limitation the rights
+- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+- * copies of the Software, and to permit persons to whom the Software is
+- * furnished to do so, subject to the following conditions:
+- *
+- * The above copyright notice and this permission notice shall be included in
+- * all copies or substantial portions of the Software.
+- *
+- * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+- * IN THE SOFTWARE.
+- ****************************************************************************/
+-#include "kernel/types.h"
+-#include "user/user.h"
+-#include "user/rhmalloc.h"
+-
+-/**
+- * For testing purposes, we need to record where our memory starts. Generally
+- * this is hidden from the users of the library but we're just using it here to
+- * make our tests more meaningful.
+- */
+-static void *heap_mem_start = 0;
+-
+-/**
+- * Head of the free list. It is actually a pointer to the header of the first
+- * free block.
+- *
+- * @warning In this assignment, "freelist" is somewhat of a misnomer, because
+- * this list contains both free and unfree nodes.
+- */
+-static metadata_t *freelist = 0;
+-
+-/**
+- * Return a pointer to the metadata of the head of the free list.
+- *
+- * @return The freelist pointer.
+- */
+-metadata_t *freelist_head(void) { return freelist; }
+-
+-/**
+- * Return the pointer to the start of the heap memory.
+- * 
+- * @return The heam_mem_start ptr.
+- */
+-void *heap_start(void) { return heap_mem_start; }
+-
+-/**
+- * Initialize the rh memroy allocator system.
+- *
+- * @return 0 on success, non-zero number on failure.
+- */
+-uint8 rhmalloc_init(void)
+-{
+-  char *p;
+-
+-  /* Grab the start of the memory where we are allocating. */
+-  heap_mem_start = sbrk(0);
+-
+-  /* grow the memory area by MAX_HEAP_SIZE bytes */
+-  p = sbrk(MAX_HEAP_SIZE);
+-  if(p == (char *)-1) {
+-    fprintf(2, "sbrk failed:exiting....\n");
+-    exit(1);
+-  }
+-
+-  /* TODO: Add code here to initialize freelist and its content. */
+-  
+-
+-  return 0;
+-}
+-
+-/**
+- * Deallocates everything and frees back all the memory to the operating system.
+- *
+- * This routine is useful to do between tests so that we can reset everything.
+- * You should not need to modify this routine though if you use global
+- * variables, it might be useful to reset their values here.
+- */
+-void rhfree_all(void)
+-{
+-  /* Imagine what would happen on a double free, yikes! */
+-  sbrk(-MAX_HEAP_SIZE);
+-
+-  freelist = 0;
+-  heap_mem_start = 0;
+-}
+-
+-/**
+- * Allocate size bytes and return a pointer to start of the region. 
+- * 
+- * @return A valid void ptr if there is enough room, 0 on error. 
+- */
+-void *rhmalloc(uint32 size)
+-{
+-  /* Check if we need to call rhmalloc_init and call it if needed. */
+-  if(!freelist)
+-    if(rhmalloc_init()) return 0;
+-
+-  /* TODO: Add you malloc code here. */
+-
+-  return 0;
+-}
+-
+-/**
+- * Free a memory region and return it to the memory allocator.
+- *
+- * @param ptr The pointer to free.
+- *
+- * @warning This routine is not responsible for making sure that the free
+- * operation will not result in an error. If freeing a pointer that has already
+- * been freed, undefined behavior may occur.
+- */
+-void rhfree(void *ptr)
+-{
+-  /* TODO: Add your free code here. */
+-}
++/****************************************************************************
++ * Copyright © 2022 Rose-Hulman Institute of Technology
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a copy
++ * of this software and associated documentation files (the “Software”), to deal
++ * in the Software without restriction, including without limitation the rights
++ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++ * copies of the Software, and to permit persons to whom the Software is
++ * furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice shall be included in
++ * all copies or substantial portions of the Software.
++ *
++ * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
++ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
++ * IN THE SOFTWARE.
++ ****************************************************************************/
++#include "kernel/types.h"
++#include "user/user.h"
++#include "user/rhmalloc.h"
++
++/**
++ * For testing purposes, we need to record where our memory starts. Generally
++ * this is hidden from the users of the library but we're just using it here to
++ * make our tests more meaningful.
++ */
++static void *heap_mem_start = 0;
++
++/**
++ * Head of the free list. It is actually a pointer to the header of the first
++ * free block.
++ *
++ * @warning In this assignment, "freelist" is somewhat of a misnomer, because
++ * this list contains both free and unfree nodes.
++ */
++static metadata_t *freelist = 0;
++
++/**
++ * Return a pointer to the metadata of the head of the free list.
++ *
++ * @return The freelist pointer.
++ */
++metadata_t *freelist_head(void) { return freelist; }
++
++/**
++ * Return the pointer to the start of the heap memory.
++ * 
++ * @return The heam_mem_start ptr.
++ */
++void *heap_start(void) { return heap_mem_start; }
++
++/**
++ * Initialize the rh memroy allocator system.
++ *
++ * @return 0 on success, non-zero number on failure.
++ */
++uint8 rhmalloc_init(void)
++{
++  char *p;
++
++  /* Grab the start of the memory where we are allocating. */
++  heap_mem_start = sbrk(0);
++
++  /* grow the memory area by MAX_HEAP_SIZE bytes */
++  p = sbrk(MAX_HEAP_SIZE);
++  if(p == (char *)-1) {
++    fprintf(2, "sbrk failed:exiting....\n");
++    exit(1);
++  }
++
++  /* TODO: Add code here to initialize freelist and its content. */
++
++  freelist = (metadata_t *)p;
++  freelist->s.size=MAX_HEAP_SIZE -sizeof(metadata_t);
++  freelist->s.prev = freelist->s.next = 0;
++
++  return 0;
++}
++
++/**
++ * Deallocates everything and frees back all the memory to the operating system.
++ *
++ * This routine is useful to do between tests so that we can reset everything.
++ * You should not need to modify this routine though if you use global
++ * variables, it might be useful to reset their values here.
++ */
++void rhfree_all(void)
++{
++  /* Imagine what would happen on a double free, yikes! */
++  sbrk(-MAX_HEAP_SIZE);
++
++  freelist = 0;
++  heap_mem_start = 0;
++}
++
++/**
++ * Allocate size bytes and return a pointer to start of the region. 
++ * 
++ * @return A valid void ptr if there is enough room, 0 on error. 
++ */
++void *rhmalloc(uint32 size)
++{
++  /* Check if we need to call rhmalloc_init and call it if needed. */
++  if(!freelist)
++    if(rhmalloc_init()) return 0;
++
++  /* TODO: Add you malloc code here. */
++  void * p=freelist;
++ metadata_t * current=p;
++
++while(current!=0 ){
++  if(current->s.in_use){
++     p=current->s.next;
++    current=current->s.next;
++    continue;
++  }
++if(current->s.size >=+ALIGN(size) && current->s.size - ALIGN(size)<ALIGN(1)+sizeof(metadata_t)){
++  current->s.in_use=1;
++  return (void*)(p)+sizeof(metadata_t);
++}
++if(current->s.size >=ALIGN(size)+ALIGN(1)+sizeof(metadata_t)){
++  //big case
++  if(current->s.next!=0 ){
++  current->s.next->s.prev=p+ALIGN(size)+sizeof(metadata_t);
++  }
++  ((metadata_t *)(p+ALIGN(size)+sizeof(metadata_t)))->s.next=(current)->s.next;
++    (current)->s.next=p+ALIGN(size)+sizeof(metadata_t);
++  (current->s.next)->s.prev=current;
++    current->s.in_use=1;
++    ((metadata_t *)current->s.next)->s.size=(current)->s.size-(ALIGN(size)+sizeof(metadata_t));
++    ((metadata_t *)(current)->s.next)->s.in_use=0;
++
++   current->s.size=ALIGN(size);
++
++  return (void*)p+sizeof(metadata_t);
++}
++if(current->s.next!=0){
++   p=current->s.next;
++  current=current->s.next;
++}else{
++  return 0;
++}
++
++}
++return 0;
++//smaler and points to zero
++//out of memory
++
++
++
++
++
++
++}
++
++/**
++ * Free a memory region and return it to the memory allocator.
++ *
++ * @param ptr The pointer to free.
++ *
++ * @warning This routine is not responsible for making sure that the free
++ * operation will not result in an error. If freeing a pointer that has already
++ * been freed, undefined behavior may occur.
++ */
++void rhfree(void *ptr)
++{
++  /* TODO: Add your free code here. */
++
++  // metadata_t *p= freelist;
++  // p=ptr-sizeof(metadata_t);
++  // p->s.in_use=0;
++   metadata_t * current=ptr -sizeof(metadata_t);
++
++   if(current->s.next!=0){
++if(current->s.next->s.in_use==0){
++  current->s.size=((current->s.size) + (current->s.next->s.size )+ sizeof(metadata_t));
++    current->s.next=current->s.next->s.next;
++  if(current->s.next !=0){
++  current->s.next->s.prev= current;
++  }
++}
++   }
++//case 2
++
++if(current->s.prev!=0){
++if(current->s.prev->s.in_use==0){
++ 
++  current->s.prev->s.size=((current->s.size) + (current->s.prev->s.size )+ sizeof(metadata_t));
++    current->s.prev->s.next=current->s.next;
++
++  if(current->s.next !=0){
++  current->s.next->s.prev=current->s.prev;
++  }
++}
++}
++   current->s.in_use=0;
++}
+diff --git a/user/rhmalloc.h b/user/rhmalloc.h
+index 696bc3a..fb35e4d 100644
+--- a/user/rhmalloc.h
++++ b/user/rhmalloc.h
+@@ -1,58 +1,58 @@
+-/****************************************************************************
+- * Copyright © 2022 Rose-Hulman Institute of Technology
+- *
+- * Permission is hereby granted, free of charge, to any person obtaining a copy
+- * of this software and associated documentation files (the “Software”), to deal
+- * in the Software without restriction, including without limitation the rights
+- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+- * copies of the Software, and to permit persons to whom the Software is
+- * furnished to do so, subject to the following conditions:
+- *
+- * The above copyright notice and this permission notice shall be included in
+- * all copies or substantial portions of the Software.
+- *
+- * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+- * IN THE SOFTWARE.
+- ****************************************************************************/
+-/**
+- * This constant determines the maximum size of our heap, restricted to 1MB for
+- * now. 
+- * 
+- * A real library would allocate some memory up front, then call to the OS to 
+- * request additional memory chunks as that initial supply is depleted. On the
+- * contrary, in this assignment, we will only allocate one large blob of memory
+- * upfront and then fail if that blob is fully consumed. 
+- */
+-#define MAX_HEAP_SIZE 1024*1024
+-
+-/**
+- * Align things to the next unsigned long boundary.
+- */
+-#define ALIGNMENT sizeof(unsigned long)
+-#define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~(ALIGNMENT-1))
+-
+-/**
+- * The metadata union is how we will keep track of our memory regions. It is
+- * structured as a doubly linked listed aligned to the closest 8 bytes location.
+- *
+- * This a union that contains an 8 byte alignment so that the compiler always
+- * allocates room for this struct in multiples of 8 bytes, making sure that
+- * proper alignment is preserved. For more information about this trick, see K&R
+- * section 8.7.
+- */
+-union metadata {
+-  struct {
+-    unsigned size;          /* The size of the block. */
+-    unsigned in_use:1;      /* Flag to indicate if the block is in use.*/
+-    union metadata *next;   /* The next pointer in the linked list. */
+-    union metadata *prev;   /* The prev pointer in the linked list. */
+-  } s;
+-  unsigned long alignment;
+-};
+-
+-typedef union metadata metadata_t;
++/****************************************************************************
++ * Copyright © 2022 Rose-Hulman Institute of Technology
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a copy
++ * of this software and associated documentation files (the “Software”), to deal
++ * in the Software without restriction, including without limitation the rights
++ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++ * copies of the Software, and to permit persons to whom the Software is
++ * furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice shall be included in
++ * all copies or substantial portions of the Software.
++ *
++ * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
++ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
++ * IN THE SOFTWARE.
++ ****************************************************************************/
++/**
++ * This constant determines the maximum size of our heap, restricted to 1MB for
++ * now. 
++ * 
++ * A real library would allocate some memory up front, then call to the OS to 
++ * request additional memory chunks as that initial supply is depleted. On the
++ * contrary, in this assignment, we will only allocate one large blob of memory
++ * upfront and then fail if that blob is fully consumed. 
++ */
++#define MAX_HEAP_SIZE 1024*1024
++
++/**
++ * Align things to the next unsigned long boundary.
++ */
++#define ALIGNMENT sizeof(unsigned long)
++#define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~(ALIGNMENT-1))
++
++/**
++ * The metadata union is how we will keep track of our memory regions. It is
++ * structured as a doubly linked listed aligned to the closest 8 bytes location.
++ *
++ * This a union that contains an 8 byte alignment so that the compiler always
++ * allocates room for this struct in multiples of 8 bytes, making sure that
++ * proper alignment is preserved. For more information about this trick, see K&R
++ * section 8.7.
++ */
++union metadata {
++  struct {
++    unsigned size;          /* The size of the block. */
++    unsigned in_use:1;      /* Flag to indicate if the block is in use.*/
++    union metadata *next;   /* The next pointer in the linked list. */
++    union metadata *prev;   /* The prev pointer in the linked list. */
++  } s;
++  unsigned long alignment;
++};
++
++typedef union metadata metadata_t;
+diff --git a/user/rhtest.c b/user/rhtest.c
+index b2ca4d9..cac052a 100644
+--- a/user/rhtest.c
++++ b/user/rhtest.c
+@@ -1,137 +1,137 @@
+-/****************************************************************************
+- * Copyright © 2022 Rose-Hulman Institute of Technology
+- *
+- * This library is heavily based on Asim Jalis's CuTest library, modified to
+- * allow the accumulation of point values.
+- *
+- * Permission is hereby granted, free of charge, to any person obtaining a copy
+- * of this software and associated documentation files (the “Software”), to deal
+- * in the Software without restriction, including without limitation the rights
+- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+- * copies of the Software, and to permit persons to whom the Software is
+- * furnished to do so, subject to the following conditions:
+- *
+- * The above copyright notice and this permission notice shall be included in
+- * all copies or substantial portions of the Software.
+- *
+- * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+- * IN THE SOFTWARE.
+- ****************************************************************************/
+-#include "rhtest.h"
+-#include "kernel/types.h"
+-#include "user.h"
+-
+-/* rhstring */
+-
+-void rhstring_init(struct rhstring *str)
+-{
+-  str->length = 0;
+-  str->size = RHSTRING_MAX;
+-  str->buffer = malloc(str->size * sizeof(char));
+-  str->buffer[0] = '\0';
+-}
+-
+-struct rhstring *rhstring_new(void)
+-{
+-  struct rhstring *str = malloc(sizeof(struct rhstring));
+-  rhstring_init(str);
+-  return str;
+-}
+-
+-void rhstring_append(struct rhstring *str, const char *text)
+-{
+-  int len;
+-
+-  if(!str || !text) return;
+-
+-  len = strlen(text);
+-  /* check if need to resize */
+-  if(str->length + len + 1 >= str->size)
+-    rhstring_resize(str, str->length + len + 1 + RHSTRING_MAX);
+-  str->length += len;
+-  /* strcat(str->buffer, text) */
+-  strcpy(str->buffer + strlen(str->buffer), text);
+-}
+-
+-void rhstring_append_char(struct rhstring *str, char ch)
+-{
+-  char text[2];
+-
+-  text[0] = ch;
+-  text[1] = '\0';
+-  rhstring_append(str, text);
+-}
+-
+-void rhstring_resize(struct rhstring *str, int new_size)
+-{
+-  char *buff;
+-
+-  /* doing this the old way since we don't have realloc. */
+-  buff = malloc(new_size * sizeof(char));
+-  strcpy(buff, str->buffer);
+-  buff[str->length] = '\0';
+-
+-  free(str->buffer);
+-  str->buffer = buff;
+-  str->size = new_size;
+-}
+-
+-void rhstring_delete(struct rhstring *str)
+-{
+-  if(!str) return;
+-  free(str->buffer);
+-  free(str);
+-}
+-
+-/* rh assert */
+-
+-void _rhassert(int exp, const char *func, int line)
+-{
+-  if(exp) {
+-    printf("%s(%d): OK.\n", func, line);
+-  } else {
+-    printf("%s(%d): Assertion FAILED.\n", func, line);
+-    exit(1);
+-  }
+-}
+-
+-void _rhassert_int_equals(int actual, int expected, const char *func, int line)
+-{
+-  if(actual == expected) {
+-    printf("%s(%d): OK.\n", func, line);
+-  } else {
+-    printf("%s(%d): Assertion FAILED: actual = %d, expected = %d\n", func, line,
+-           actual, expected);
+-    exit(1);
+-  }
+-}
+-
+-void _rhassert_ptr_equals(void *actual, void *expected, const char *func,
+-                         int line)
+-{
+-  if(actual == expected) {
+-    printf("%s(%d): OK.\n", func, line);
+-  } else {
+-    printf("%s(%d): Assertion FAILED: actual = %p, expected = %p\n", func, line,
+-           actual, expected);
+-    exit(1);
+-  }
+-}
+-
+-void _rhassert_str_equals(const char *actual, const char *expected,
+-                         const char *func, int line)
+-{
+-  if((!actual && !expected) ||
+-     (actual && expected && !strcmp(actual, expected))) {
+-    printf("%s(%d): OK.\n", func, line);
+-  } else {
+-    printf("%s(%d): Assertion FAILED: actual = %s, expected = %s\n", func, line,
+-           actual, expected);
+-    exit(1);
+-  }
+-}
++/****************************************************************************
++ * Copyright © 2022 Rose-Hulman Institute of Technology
++ *
++ * This library is heavily based on Asim Jalis's CuTest library, modified to
++ * allow the accumulation of point values.
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a copy
++ * of this software and associated documentation files (the “Software”), to deal
++ * in the Software without restriction, including without limitation the rights
++ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++ * copies of the Software, and to permit persons to whom the Software is
++ * furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice shall be included in
++ * all copies or substantial portions of the Software.
++ *
++ * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
++ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
++ * IN THE SOFTWARE.
++ ****************************************************************************/
++#include "rhtest.h"
++#include "kernel/types.h"
++#include "user.h"
++
++/* rhstring */
++
++void rhstring_init(struct rhstring *str)
++{
++  str->length = 0;
++  str->size = RHSTRING_MAX;
++  str->buffer = malloc(str->size * sizeof(char));
++  str->buffer[0] = '\0';
++}
++
++struct rhstring *rhstring_new(void)
++{
++  struct rhstring *str = malloc(sizeof(struct rhstring));
++  rhstring_init(str);
++  return str;
++}
++
++void rhstring_append(struct rhstring *str, const char *text)
++{
++  int len;
++
++  if(!str || !text) return;
++
++  len = strlen(text);
++  /* check if need to resize */
++  if(str->length + len + 1 >= str->size)
++    rhstring_resize(str, str->length + len + 1 + RHSTRING_MAX);
++  str->length += len;
++  /* strcat(str->buffer, text) */
++  strcpy(str->buffer + strlen(str->buffer), text);
++}
++
++void rhstring_append_char(struct rhstring *str, char ch)
++{
++  char text[2];
++
++  text[0] = ch;
++  text[1] = '\0';
++  rhstring_append(str, text);
++}
++
++void rhstring_resize(struct rhstring *str, int new_size)
++{
++  char *buff;
++
++  /* doing this the old way since we don't have realloc. */
++  buff = malloc(new_size * sizeof(char));
++  strcpy(buff, str->buffer);
++  buff[str->length] = '\0';
++
++  free(str->buffer);
++  str->buffer = buff;
++  str->size = new_size;
++}
++
++void rhstring_delete(struct rhstring *str)
++{
++  if(!str) return;
++  free(str->buffer);
++  free(str);
++}
++
++/* rh assert */
++
++void _rhassert(int exp, const char *func, int line)
++{
++  if(exp) {
++    printf("%s(%d): OK.\n", func, line);
++  } else {
++    printf("%s(%d): Assertion FAILED.\n", func, line);
++    exit(1);
++  }
++}
++
++void _rhassert_int_equals(int actual, int expected, const char *func, int line)
++{
++  if(actual == expected) {
++    printf("%s(%d): OK.\n", func, line);
++  } else {
++    printf("%s(%d): Assertion FAILED: actual = %d, expected = %d\n", func, line,
++           actual, expected);
++    exit(1);
++  }
++}
++
++void _rhassert_ptr_equals(void *actual, void *expected, const char *func,
++                         int line)
++{
++  if(actual == expected) {
++    printf("%s(%d): OK.\n", func, line);
++  } else {
++    printf("%s(%d): Assertion FAILED: actual = %p, expected = %p\n", func, line,
++           actual, expected);
++    exit(1);
++  }
++}
++
++void _rhassert_str_equals(const char *actual, const char *expected,
++                         const char *func, int line)
++{
++  if((!actual && !expected) ||
++     (actual && expected && !strcmp(actual, expected))) {
++    printf("%s(%d): OK.\n", func, line);
++  } else {
++    printf("%s(%d): Assertion FAILED: actual = %s, expected = %s\n", func, line,
++           actual, expected);
++    exit(1);
++  }
++}
+diff --git a/user/rhtest.h b/user/rhtest.h
+index 3d996eb..1b5f64e 100644
+--- a/user/rhtest.h
++++ b/user/rhtest.h
+@@ -1,89 +1,89 @@
+-/****************************************************************************
+- * Copyright © 2022 Rose-Hulman Institute of Technology
+- *
+- * This library is heavily based on Asim Jalis's CuTest library, modified to
+- * allow the accumulation of point values.
+- *
+- * Permission is hereby granted, free of charge, to any person obtaining a copy
+- * of this software and associated documentation files (the “Software”), to deal
+- * in the Software without restriction, including without limitation the rights
+- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+- * copies of the Software, and to permit persons to whom the Software is
+- * furnished to do so, subject to the following conditions:
+- *
+- * The above copyright notice and this permission notice shall be included in
+- * all copies or substantial portions of the Software.
+- *
+- * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+- * IN THE SOFTWARE.
+- ****************************************************************************/
+-
+-#define RHSTRING_MAX 256
+-#define LARGE_STRINGLEN 8192
+-#define RH_MAX_TEST_CASES 1024
+-
+-struct rhstring {
+-  int length;
+-  int size;
+-  char *buffer;
+-};
+-
+-void rhstring_init(struct rhstring *str);
+-struct rhstring *rhstring_new(void);
+-
+-void rhstring_append(struct rhstring *str, const char *text);
+-void rhstring_append_char(struct rhstring *str, char ch);
+-
+-void rhstring_resize(struct rhstring *str, int new_size);
+-void rhstring_delete(struct rhstring *str);
+-
+-/**
+- * rhassert - Assert that a condition is true.
+- *
+- * @exp       The expression to assert.
+- * @func      The name of the function calling the assertion.
+- * @line      The line number in the calling function.
+- */
+-void _rhassert(int exp, const char *func, int line);
+-
+-/**
+- * rhassert_int_equals - Assert two integers are equal
+- *
+- * @actual    The actual value computed from an expression.
+- * @expected  The exepected value.
+- * @func      The name of the function we are testing.
+- * @line      The line number of the calling function.
+- */
+-void _rhassert_int_equals(int actual, int expected, const char *func, int line);
+-
+-/**
+- * rhassert_ptr_equals - Assert two pointers are equal
+- *
+- * @actual    The actual value computed from an expression.
+- * @expected  The exepected value.
+- * @func      The name of the function we are testing.
+- * @line      The line number of the calling function.
+- */
+-void _rhassert_ptr_equals(void *actual, void *expected, const char *func,
+-                           int line);
+-
+-/**
+- * rhassert_str_equals - Assert two strings are equal
+- *
+- * @actual    The actual value computed from an expression.
+- * @expected  The exepected value.
+- * @func      The name of the function we are testing.
+- * @line      The line number of the calling function.
+- */
+-void _rhassert_str_equals(const char *actual, const char *expected,
+-                           const char *func, int line);
+-
+-#define rhassert(exp) _rhassert(exp, __func__, __LINE__)
+-#define rhassert_int_equals(a, e) _rhassert_int_equals(a, e, __func__, __LINE__)
+-#define rhassert_ptr_equals(a, e) _rhassert_ptr_equals(a, e, __func__, __LINE__)
+-#define rhassert_str_equals(a, e) _rhassert_str_equals(a, e, __func__, __LINE__)
++/****************************************************************************
++ * Copyright © 2022 Rose-Hulman Institute of Technology
++ *
++ * This library is heavily based on Asim Jalis's CuTest library, modified to
++ * allow the accumulation of point values.
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a copy
++ * of this software and associated documentation files (the “Software”), to deal
++ * in the Software without restriction, including without limitation the rights
++ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++ * copies of the Software, and to permit persons to whom the Software is
++ * furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice shall be included in
++ * all copies or substantial portions of the Software.
++ *
++ * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
++ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
++ * IN THE SOFTWARE.
++ ****************************************************************************/
++
++#define RHSTRING_MAX 256
++#define LARGE_STRINGLEN 8192
++#define RH_MAX_TEST_CASES 1024
++
++struct rhstring {
++  int length;
++  int size;
++  char *buffer;
++};
++
++void rhstring_init(struct rhstring *str);
++struct rhstring *rhstring_new(void);
++
++void rhstring_append(struct rhstring *str, const char *text);
++void rhstring_append_char(struct rhstring *str, char ch);
++
++void rhstring_resize(struct rhstring *str, int new_size);
++void rhstring_delete(struct rhstring *str);
++
++/**
++ * rhassert - Assert that a condition is true.
++ *
++ * @exp       The expression to assert.
++ * @func      The name of the function calling the assertion.
++ * @line      The line number in the calling function.
++ */
++void _rhassert(int exp, const char *func, int line);
++
++/**
++ * rhassert_int_equals - Assert two integers are equal
++ *
++ * @actual    The actual value computed from an expression.
++ * @expected  The exepected value.
++ * @func      The name of the function we are testing.
++ * @line      The line number of the calling function.
++ */
++void _rhassert_int_equals(int actual, int expected, const char *func, int line);
++
++/**
++ * rhassert_ptr_equals - Assert two pointers are equal
++ *
++ * @actual    The actual value computed from an expression.
++ * @expected  The exepected value.
++ * @func      The name of the function we are testing.
++ * @line      The line number of the calling function.
++ */
++void _rhassert_ptr_equals(void *actual, void *expected, const char *func,
++                           int line);
++
++/**
++ * rhassert_str_equals - Assert two strings are equal
++ *
++ * @actual    The actual value computed from an expression.
++ * @expected  The exepected value.
++ * @func      The name of the function we are testing.
++ * @line      The line number of the calling function.
++ */
++void _rhassert_str_equals(const char *actual, const char *expected,
++                           const char *func, int line);
++
++#define rhassert(exp) _rhassert(exp, __func__, __LINE__)
++#define rhassert_int_equals(a, e) _rhassert_int_equals(a, e, __func__, __LINE__)
++#define rhassert_ptr_equals(a, e) _rhassert_ptr_equals(a, e, __func__, __LINE__)
++#define rhassert_str_equals(a, e) _rhassert_str_equals(a, e, __func__, __LINE__)
+diff --git a/user/user.h b/user/user.h
+index 3f8066b..92e1f1d 100644
+--- a/user/user.h
++++ b/user/user.h
+@@ -1,52 +1,52 @@
+-struct stat;
+-union metadata;
+-
+-// system calls
+-int fork(void);
+-int exit(int) __attribute__((noreturn));
+-int wait(int*);
+-int pipe(int*);
+-int write(int, const void*, int);
+-int read(int, void*, int);
+-int close(int);
+-int kill(int);
+-int exec(const char*, char**);
+-int open(const char*, int);
+-int mknod(const char*, short, short);
+-int unlink(const char*);
+-int fstat(int fd, struct stat*);
+-int link(const char*, const char*);
+-int mkdir(const char*);
+-int chdir(const char*);
+-int dup(int);
+-int getpid(void);
+-char* sbrk(int);
+-int sleep(int);
+-int uptime(void);
+-
+-// ulib.c
+-int stat(const char*, struct stat*);
+-char* strcpy(char*, const char*);
+-void *memmove(void*, const void*, int);
+-char* strchr(const char*, char c);
+-int strcmp(const char*, const char*);
+-void fprintf(int, const char*, ...);
+-void printf(const char*, ...);
+-char* gets(char*, int max);
+-uint strlen(const char*);
+-void* memset(void*, int, uint);
+-void* malloc(uint);
+-void free(void*);
+-int atoi(const char*);
+-int memcmp(const void *, const void *, uint);
+-void *memcpy(void *, const void *, uint);
+-
+-
+-// rhmalloc.c
+-void *rhmalloc(uint32);
+-void rhfree(void*);
+-uint8 rhmalloc_init(void);
+-void rhfree_all(void);
+-union metadata *freelist_head(void);
+-void *heap_start(void);
+-
++struct stat;
++union metadata;
++
++// system calls
++int fork(void);
++int exit(int) __attribute__((noreturn));
++int wait(int*);
++int pipe(int*);
++int write(int, const void*, int);
++int read(int, void*, int);
++int close(int);
++int kill(int);
++int exec(const char*, char**);
++int open(const char*, int);
++int mknod(const char*, short, short);
++int unlink(const char*);
++int fstat(int fd, struct stat*);
++int link(const char*, const char*);
++int mkdir(const char*);
++int chdir(const char*);
++int dup(int);
++int getpid(void);
++char* sbrk(int);
++int sleep(int);
++int uptime(void);
++
++// ulib.c
++int stat(const char*, struct stat*);
++char* strcpy(char*, const char*);
++void *memmove(void*, const void*, int);
++char* strchr(const char*, char c);
++int strcmp(const char*, const char*);
++void fprintf(int, const char*, ...);
++void printf(const char*, ...);
++char* gets(char*, int max);
++uint strlen(const char*);
++void* memset(void*, int, uint);
++void* malloc(uint);
++void free(void*);
++int atoi(const char*);
++int memcmp(const void *, const void *, uint);
++void *memcpy(void *, const void *, uint);
++
++
++// rhmalloc.c
++void *rhmalloc(uint32);
++void rhfree(void*);
++uint8 rhmalloc_init(void);
++void rhfree_all(void);
++union metadata *freelist_head(void);
++void *heap_start(void);
++
+diff --git a/user/usys.pl b/user/usys.pl
+old mode 100755
+new mode 100644
+index 01e426e..7dad16d
+--- a/user/usys.pl
++++ b/user/usys.pl
+@@ -1,38 +1,38 @@
+-#!/usr/bin/perl -w
+-
+-# Generate usys.S, the stubs for syscalls.
+-
+-print "# generated by usys.pl - do not edit\n";
+-
+-print "#include \"kernel/syscall.h\"\n";
+-
+-sub entry {
+-    my $name = shift;
+-    print ".global $name\n";
+-    print "${name}:\n";
+-    print " li a7, SYS_${name}\n";
+-    print " ecall\n";
+-    print " ret\n";
+-}
+-	
+-entry("fork");
+-entry("exit");
+-entry("wait");
+-entry("pipe");
+-entry("read");
+-entry("write");
+-entry("close");
+-entry("kill");
+-entry("exec");
+-entry("open");
+-entry("mknod");
+-entry("unlink");
+-entry("fstat");
+-entry("link");
+-entry("mkdir");
+-entry("chdir");
+-entry("dup");
+-entry("getpid");
+-entry("sbrk");
+-entry("sleep");
+-entry("uptime");
++#!/usr/bin/perl -w
++
++# Generate usys.S, the stubs for syscalls.
++
++print "# generated by usys.pl - do not edit\n";
++
++print "#include \"kernel/syscall.h\"\n";
++
++sub entry {
++    my $name = shift;
++    print ".global $name\n";
++    print "${name}:\n";
++    print " li a7, SYS_${name}\n";
++    print " ecall\n";
++    print " ret\n";
++}
++	
++entry("fork");
++entry("exit");
++entry("wait");
++entry("pipe");
++entry("read");
++entry("write");
++entry("close");
++entry("kill");
++entry("exec");
++entry("open");
++entry("mknod");
++entry("unlink");
++entry("fstat");
++entry("link");
++entry("mkdir");
++entry("chdir");
++entry("dup");
++entry("getpid");
++entry("sbrk");
++entry("sleep");
++entry("uptime");

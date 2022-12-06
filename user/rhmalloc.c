@@ -73,7 +73,10 @@ uint8 rhmalloc_init(void)
   }
 
   /* TODO: Add code here to initialize freelist and its content. */
-  
+
+  freelist = (metadata_t *)p;
+  freelist->s.size=MAX_HEAP_SIZE -sizeof(metadata_t);
+  freelist->s.prev = freelist->s.next = 0;
 
   return 0;
 }
@@ -106,8 +109,52 @@ void *rhmalloc(uint32 size)
     if(rhmalloc_init()) return 0;
 
   /* TODO: Add you malloc code here. */
+  void * p=freelist;
+ metadata_t * current=p;
 
+while(current!=0 ){
+  if(current->s.in_use){
+     p=current->s.next;
+    current=current->s.next;
+    continue;
+  }
+if(current->s.size >=+ALIGN(size) && current->s.size - ALIGN(size)<ALIGN(1)+sizeof(metadata_t)){
+  current->s.in_use=1;
+  return (void*)(p)+sizeof(metadata_t);
+}
+if(current->s.size >=ALIGN(size)+ALIGN(1)+sizeof(metadata_t)){
+  //big case
+  if(current->s.next!=0 ){
+  current->s.next->s.prev=p+ALIGN(size)+sizeof(metadata_t);
+  }
+  ((metadata_t *)(p+ALIGN(size)+sizeof(metadata_t)))->s.next=(current)->s.next;
+    (current)->s.next=p+ALIGN(size)+sizeof(metadata_t);
+  (current->s.next)->s.prev=current;
+    current->s.in_use=1;
+    ((metadata_t *)current->s.next)->s.size=(current)->s.size-(ALIGN(size)+sizeof(metadata_t));
+    ((metadata_t *)(current)->s.next)->s.in_use=0;
+
+   current->s.size=ALIGN(size);
+
+  return (void*)p+sizeof(metadata_t);
+}
+if(current->s.next!=0){
+   p=current->s.next;
+  current=current->s.next;
+}else{
   return 0;
+}
+
+}
+return 0;
+//smaler and points to zero
+//out of memory
+
+
+
+
+
+
 }
 
 /**
@@ -122,4 +169,33 @@ void *rhmalloc(uint32 size)
 void rhfree(void *ptr)
 {
   /* TODO: Add your free code here. */
+
+  // metadata_t *p= freelist;
+  // p=ptr-sizeof(metadata_t);
+  // p->s.in_use=0;
+   metadata_t * current=ptr -sizeof(metadata_t);
+
+   if(current->s.next!=0){
+if(current->s.next->s.in_use==0){
+  current->s.size=((current->s.size) + (current->s.next->s.size )+ sizeof(metadata_t));
+    current->s.next=current->s.next->s.next;
+  if(current->s.next !=0){
+  current->s.next->s.prev= current;
+  }
+}
+   }
+//case 2
+
+if(current->s.prev!=0){
+if(current->s.prev->s.in_use==0){
+ 
+  current->s.prev->s.size=((current->s.size) + (current->s.prev->s.size )+ sizeof(metadata_t));
+    current->s.prev->s.next=current->s.next;
+
+  if(current->s.next !=0){
+  current->s.next->s.prev=current->s.prev;
+  }
+}
+}
+   current->s.in_use=0;
 }
